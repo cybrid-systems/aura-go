@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full Soft smoke: M0 rules + M1 strategy + M2 duel + M3 propose fixture.
+# Full Soft smoke: M0 rules + M1 strategy + M2 duel + M3 propose fixture + 19 PK.
 # Live MiniMax is optional (GO_M3_PROPOSE_SKIP when no key).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,8 +20,11 @@ run() {
 
 run m1_strategy /workspace/aura-go/soft/go/m1_strategy_smoke.aura GO_M1_STRATEGY_OK
 run m2_duel /workspace/aura-go/soft/go/m2_duel_smoke.aura GO_M2_DUEL_OK
-grep -q 'WORLD line=host-sequential' "$ROOT/out/m2_duel.txt"
+grep -E -q 'WORLD line=(host-sequential|fiber_live)' "$ROOT/out/m2_duel.txt"
 grep -q 'WINNER mid=' "$ROOT/out/m2_duel.txt"
+if grep -q 'WORLD line=fiber_live' "$ROOT/out/m2_duel.txt"; then
+  grep -E -q 'joins=[1-9][0-9]*/' "$ROOT/out/m2_duel.txt"
+fi
 run m3_propose /workspace/aura-go/soft/go/m3_propose_smoke.aura GO_M3_PROPOSE_OK
 
 keyfile="/home/box/.config/aura-build/minimax_api_key"
@@ -51,5 +54,8 @@ else
     exit 1
   fi
 fi
+
+echo "smoke: 19pk"
+bash "$ROOT/scripts/smoke_19.sh"
 
 echo "smoke: GO_SMOKE_OK"

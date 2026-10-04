@@ -1,4 +1,4 @@
-; Dual duel on 9×9 with seeded agg/def bodies. host-sequential stamp.
+; Dual duel on 9×9 with seeded agg/def bodies. honest worldline stamp (fiber_live only if every select joined).
 (load "/workspace/aura-go/soft/go/duel.aura")
 
 (define (main)
@@ -38,7 +38,11 @@
           (display *explain-reason*)
           (newline)
           (if (and (>= (car (cdr (cdr (cdr res)))) 2)
-                   (string=? *duel-world* "host-sequential"))
+                   (or (and (string=? *duel-world* "fiber_live")
+                            (> *race-hit* 0)
+                            (= *race-hit* *race-tried*)
+                            (> *race-backend* 0))
+                       (string=? *duel-world* "host-sequential")))
               (display "GO_M2_DUEL_OK\n")
               (display "GO_M2_DUEL_FAIL short\n"))))))
 
