@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Soft M0 smoke. Image ghcr.io/cybrid-systems/dev:v1.0.9, tip binary only.
 # Never build_soft4132. Host GLIBC may be too old — always run Soft in docker.
+# 9x9 regression plus one 19x19 place/capture/ko/suicide sequence.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 AURA_SRC="${AURA_SRC:-/workspace/aura-grok}"
@@ -37,15 +38,29 @@ grep -q 'KO_BLOCK=0 OK' "$ROOT/out/m0_smoke.txt" || fail=1
 grep -q 'RECAPTURE=1 OK' "$ROOT/out/m0_smoke.txt" || fail=1
 grep -q 'MULTI=2 OK' "$ROOT/out/m0_smoke.txt" || fail=1
 grep -q 'SUICIDE=0 OK' "$ROOT/out/m0_smoke.txt" || fail=1
+grep -q 'DEFAULT_N=19 OK' "$ROOT/out/m0_smoke.txt" || fail=1
+grep -q 'SET9=9 OK' "$ROOT/out/m0_smoke.txt" || fail=1
+grep -q 'OFF9=0 OK' "$ROOT/out/m0_smoke.txt" || fail=1
+grep -q 'SIZE19=19 OK' "$ROOT/out/m0_smoke.txt" || fail=1
+grep -q 'CELLS19=361 OK' "$ROOT/out/m0_smoke.txt" || fail=1
+grep -q 'FAR_PLACE=1 OK' "$ROOT/out/m0_smoke.txt" || fail=1
+grep -q 'EDGE_CAPTURE=1 OK' "$ROOT/out/m0_smoke.txt" || fail=1
+grep -q 'EDGE_KO_BLOCK=0 OK' "$ROOT/out/m0_smoke.txt" || fail=1
+grep -q 'EDGE_SUICIDE=0 OK' "$ROOT/out/m0_smoke.txt" || fail=1
+grep -q 'EMPTY19=358 OK' "$ROOT/out/m0_smoke.txt" || fail=1
 grep -q 'GO_M0_OK' "$ROOT/out/m0_smoke.txt" || fail=1
+grep -q 'GO_19_OK' "$ROOT/out/m0_smoke.txt" || fail=1
 if grep -q 'GO_M0_FAIL' "$ROOT/out/m0_smoke.txt"; then
+  fail=1
+fi
+if grep -q 'GO_19_FAIL' "$ROOT/out/m0_smoke.txt"; then
   fail=1
 fi
 if grep -qiE 'error:|unbound variable' "$ROOT/out/m0_smoke.txt" "$ROOT/out/m0_smoke.err"; then
   fail=1
 fi
 if [[ "$fail" -ne 0 ]]; then
-  echo "smoke_soft: GO_M0_OK checks failed" >&2
+  echo "smoke_soft: GO_M0_OK / GO_19_OK checks failed" >&2
   exit 1
 fi
-echo "smoke_soft: GO_M0_OK"
+echo "smoke_soft: GO_M0_OK GO_19_OK"

@@ -1,5 +1,7 @@
 # aura-go dogfood — success predicate
 
+The product board in `soft/go/world.aura` is **19×19** (`go:set-size!`, default 19). This dogfood exercise stays **9×9** on purpose: it is the small regression, not a second ruleset.
+
 Write a small **Aura Soft** program that implements Go capture helpers and
 prints exactly these lines (each plus a trailing newline):
 
