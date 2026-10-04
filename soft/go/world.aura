@@ -1,12 +1,14 @@
-;; aura-go M0 — 9x9 board, liberties, capture, simple ko.
+;; aura-go M0 — configurable board (default 19x19), liberties, capture, simple ko.
 ;; Soft FlatAST owns the rules. Cell values: 0 empty, 1 black, 2 white.
-;; Dialect notes live in rules.aura / docs/m0.md.
+;; Storage is a packed N*N vector, N in 2..19. Dialect notes: rules.aura / docs/m0.md.
 
-(define *N* 9)
-(define *CELLS* 81)
-(define *board* (make-vector 81 0))
-(define *undo* (make-vector 81 0))
-(define *seen* (make-vector 81 0))
+(define *MAX-N* 19)
+(define *MAX-CELLS* 361)
+(define *N* 19)
+(define *CELLS* 361)
+(define *board* (make-vector 361 0))
+(define *undo* (make-vector 361 0))
+(define *seen* (make-vector 361 0))
 (define *stamp* 0)
 (define *to-play* 1)
 (define *ko-x* -1)
@@ -38,6 +40,8 @@
   (vector-set! *board* (idx x y) v))
 
 (define (go:at x y) (at x y))
+
+(define (go:size) *N*)
 
 (define (bump-stamp!)
   (set! *stamp* (+ *stamp* 1))
@@ -188,6 +192,16 @@
   (set! *cap-y* -1)
   (clear-ko!)
   0)
+
+;; n in 2..19. Repacks *CELLS* and clears the board. Returns n, or 0.
+(define (go:set-size! n)
+  (if (and (number? n) (>= n 2) (<= n *MAX-N*) (= n (floor n)))
+      (begin
+        (set! *N* n)
+        (set! *CELLS* (* n n))
+        (go:reset!)
+        n)
+      0))
 
 (define (go:pass!)
   (clear-ko!)
