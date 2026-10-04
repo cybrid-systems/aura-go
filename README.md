@@ -1,2 +1,90 @@
 # aura-go
-Aura Soft Go: FlatAST board + worldline search + gated propose (9x9 first). Thin C viewport only.
+
+Aura Go is a live Soft world. The 9×9 board, liberties, captures, and simple
+ko are a Soft FlatAST program. A thin C viewport, later, only blits `SNAP`
+frames and turns keys into `INPUT` lines. M0 has no C binary: the rules
+already run headless.
+
+Design: [`docs/DESIGN.md`](docs/DESIGN.md). Milestone: [`docs/m0.md`](docs/m0.md).
+Repo: https://github.com/cybrid-systems/aura-go
+
+Also an [aura-build](https://github.com/cybrid-systems/aura-build) dogfood
+stub under `examples/dogfood/`.
+
+This is not an Elo project and not a 19×19 engine. The product, same as
+aura-tetris, is the Aura loop: propose a strategy, search worldlines,
+select-best, and leave an auditable `EXPLAIN`. M0 is only the rules the
+loop will own.
+
+## Soft smoke
+
+Image `ghcr.io/cybrid-systems/dev:v1.0.9`, Soft tip binary
+`/workspace/aura-grok/build/aura` (host GLIBC is often too old — smoke always
+runs Soft inside Docker with `--entrypoint /usr/local/bin/gosu`). Needs
+`AURA_SANDBOX=off`.
+
+```bash
+bash scripts/smoke_soft.sh    # capture + simple ko → GO_M0_OK
+```
+
+Manual Soft run:
+
+```bash
+sudo docker run --rm --entrypoint /usr/local/bin/gosu \
+  -v /workspace/aura-grok:/workspace/aura-grok \
+  -v "$PWD":/workspace/aura-go \
+  -w /workspace/aura-go \
+  -e AURA_PATH=/workspace/aura-grok/lib \
+  -e AURA_PIPELINE_STRICT=0 \
+  -e AURA_SANDBOX=off \
+  ghcr.io/cybrid-systems/dev:v1.0.9 \
+  dev /workspace/aura-grok/build/aura /workspace/aura-go/soft/go/m0_smoke.aura
+```
+
+## Engine
+
+| Path | Role |
+|------|------|
+| `soft/go/world.aura` | 9×9 board, place, liberties, capture, suicide, simple ko, pass |
+| `soft/go/rules.aura` | dialect tag, empty-count stub (not a score) |
+| `soft/go/m0_smoke.aura` | scripted sequence → `GO_M0_OK` |
+| `c/README.md` | viewport is not in M0 |
+| `examples/dogfood/` | GOAL / stub / verify for `aura-build llm-dogfood` |
+
+Rules dialect for M0: **Japanese-style simplified**, not Chinese superko and
+not a full Japanese ruleset. See `docs/m0.md`.
+
+- Black plays first. Colors alternate. `1` black, `2` white, `0` empty.
+- A play captures orthogonal opponent groups that then have zero liberties.
+- Suicide (own group still has zero liberties after captures) is illegal and leaves the board unchanged.
+- Simple ko: if the move captured exactly one stone and the capturer is a single stone with exactly one liberty, the opponent may not play that point on the immediate next move. Any other successful move or a pass clears the ban.
+- Two passes in a row are counted (`*passes*`). M0 does not end the game or score it.
+- No komi. `go:empty-count` is not territory.
+
+## Soft tip
+
+- Binary: `/workspace/aura-grok/build/aura`
+- Image: `ghcr.io/cybrid-systems/dev:v1.0.9`
+- Env: `AURA_SANDBOX=off AURA_PIPELINE_STRICT=0 AURA_PATH=/workspace/aura-grok/lib`
+
+Soft is not Restricted mode. M0 does not call `hot-strategy` and does not
+stamp `fiber_live`.
+
+License: Apache-2.0
+
+---
+
+# aura-go（中文）
+
+活世界在 Soft：9×9 棋盘、气、提子、简单劫。C 以后只做 `SNAP` 绘制和
+`INPUT`，M0 没有 C 程序。不是 19×19 Elo 项目。产品环路与 aura-tetris 相同：
+propose → 世界线搜索 → select-best → 可审计 `EXPLAIN`。M0 先把规则交给 Soft。
+
+```bash
+bash scripts/smoke_soft.sh   # 提子 + 简单劫，结尾 GO_M0_OK
+```
+
+规则是简化日本规则，不是中国超级劫：禁自杀；只禁「上一手提恰好一子，且提子方是恰好一气的单子」时的立即回提。双气以上的提子不设劫。没有贴目，没有终局数目。详见 `docs/m0.md`。
+
+镜像 `ghcr.io/cybrid-systems/dev:v1.0.9`，Soft 二进制 `/workspace/aura-grok/build/aura`。
+仓库：https://github.com/cybrid-systems/aura-go
