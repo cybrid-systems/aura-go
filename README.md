@@ -49,30 +49,45 @@ sudo docker run --rm --entrypoint /usr/local/bin/gosu \
 
 Soft owns the board and two place-fn slots (`go:place-black` /
 `go:place-white`). Each side hot-strategy:swap! / heal! independently.
-Select-best is one-ply over legal moves; the stamp is `host-sequential`
-(never a fake `fiber_live`). Burn prefers **9×9** for speed; the product
-default board stays **19×19**.
+Select-best is one ply over a liberty-aware packed feature (capture band,
+liberty-save band, place/fill). Four worldlines split the rows. The stamp
+is `fiber_live` only when every select spawned four distinct fibers and
+each `fiber:join` returned a landing; otherwise `host-sequential`. Never
+a fake `fiber_live`.
+
+Burn prefers **9×9** for speed. The product PK is **19×19**
+(`scripts/burn_19.sh`): each round MiniMax proposes a new place-fn per
+color, Soft gates it, they play, and each color keeps the body only when
+its own signal improves (captures, then fewer thin stones, then stones,
+then capture-lead). Not territory. Not Elo.
+
+Mid-match the liberty weight goes 4→7 by `set!`. `mutate:rebind` of a tag
+is logged. `eval-current` is not used there: a probe showed it clears the
+board.
 
 ```bash
-bash scripts/smoke.sh     # M0 + M1 strategy + M2 duel + M3 propose (+ live MiniMax if key)
-bash scripts/duel.sh      # one 9×9 dual duel, no propose
-bash scripts/burn.sh      # propose→gate→play→score rounds (MiniMax when key present)
+bash scripts/smoke.sh      # M0 + M1 + M2 + M3 + 19×19 PK smoke (+ live MiniMax on 9 if key)
+bash scripts/smoke_19.sh   # 19×19 size / liberty / RULE / honest WORLD → GO_19_PK_OK
+bash scripts/duel.sh       # one 9×9 dual duel, no propose
+bash scripts/burn.sh       # 9×9 propose→gate→play→score (MiniMax when key present)
+bash scripts/burn_19.sh    # 19×19 multi-round MiniMax PK, 25 min cap per Soft invoke
 ```
 
 Env for play/burn: `GO_BURN_ROUNDS`, `GO_BURN_MOVES`, `GO_BURN_SIZE` (default 9),
-`GO_PROPOSE` (0|1), `GO_PROPOSE_FILE` (fixture path). Host MiniMax:
-`scripts/propose_minimax.py` reads `~/.config/aura-build/minimax.env` — never
-commit keys. Capture-lead is the burn scoreboard, not territory and not Elo.
+`GO_PROPOSE` (0|1), `GO_PROPOSE_FILE` (fixture path), `GO_SOFT_TIMEOUT`
+(burn_19, default 1500). Host MiniMax: `scripts/propose_minimax.py` reads
+`~/.config/aura-build/minimax.env` — never commit keys.
 
 | Path | Role |
 |------|------|
 | `soft/go/strategy.aura` | dual place-fn slots, gate, probe, swap, heal, EXPLAIN |
-| `soft/go/duel.aura` | same-board select-best duel, host-sequential |
+| `soft/go/duel.aura` | select-best, liberty feature, 4-way worldline |
 | `soft/go/propose.aura` | file / host MiniMax propose per color |
-| `soft/go/burn.aura` | self-evolve keep-better loop |
+| `soft/go/burn.aura` | self-evolve keep-better per color |
 | `soft/go/play.aura` | burn entry |
+| `soft/go/m19_pk_smoke.aura` | 19×19 PK smoke → `GO_19_PK_OK` |
 | `scripts/propose_minimax.py` | host HTTP → lambda file |
-| `scripts/duel.sh` / `burn.sh` / `smoke.sh` | runners |
+| `scripts/duel.sh` / `burn.sh` / `burn_19.sh` / `smoke.sh` / `smoke_19.sh` | runners |
 
 ## Engine
 
@@ -121,6 +136,8 @@ bash scripts/smoke_soft.sh   # 9×9 回归 + 19×19 落子/提子/劫/禁自杀�
 ```
 
 规则是简化日本规则，不是中国超级劫：禁自杀；只禁「上一手提恰好一子，且提子方是恰好一气的单子」时的立即回提。双气以上的提子不设劫。没有贴目，没有终局数目。详见 `docs/m0.md`。
+
+19×19 PK：`bash scripts/burn_19.sh`（双方每轮各自向 MiniMax 要 place-fn，Soft 门控后对弈，按提子和薄形各自留强）。`fiber_live` 只有四条世界线都 join 到才印。
 
 镜像 `ghcr.io/cybrid-systems/dev:v1.0.9`，Soft 二进制 `/workspace/aura-grok/build/aura`。
 仓库：https://github.com/cybrid-systems/aura-go
