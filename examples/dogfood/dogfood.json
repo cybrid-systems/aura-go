@@ -1,0 +1,13 @@
+{
+  "label": "go-m0",
+  "expect": "CAPTURE=1\nKO_BLOCK=0\nGO_M0_OK",
+  "expect_res": [
+    "CAPTURE\\s*=\\s*1",
+    "KO_BLOCK\\s*=\\s*0",
+    "GO_M0_OK"
+  ],
+  "source_res": [
+    "\\(define\\s+\\(go:place!(\\s|\\))"
+  ],
+  "user_extra": "Implement a real 9x9 Go place/capture/simple-ko helper (define (go:place! color x y) ...). Sequence B(0,0) W(1,0) B(1,1) W(3,0) B(4,4) W(2,1) then B(2,0) captures exactly one stone (print CAPTURE=1) and W(1,0) is illegal (print KO_BLOCK=0) then GO_M0_OK. Do not only hardcode the three display strings. No extra prose outside the code fence."
+}

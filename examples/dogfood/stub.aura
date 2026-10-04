@@ -1,0 +1,26 @@
+; Intentionally wrong — reports the ko recapture as legal.
+(define *last-caps* 0)
+(define *ko* 0)
+
+(define (go:place! color x y)
+  ; stub "captures" whenever black plays, and never bans ko
+  (if (= color 1)
+      (begin (set! *last-caps* 1) 1)
+      1))
+
+(go:place! 1 0 0)
+(go:place! 2 1 0)
+(go:place! 1 1 1)
+(go:place! 2 3 0)
+(go:place! 1 4 4)
+(go:place! 2 2 1)
+(go:place! 1 2 0)
+(display "CAPTURE=")
+(display (number->string *last-caps*))
+(newline)
+; Wrong: ko point is accepted (returns 1) but the line still says 0.
+(display "KO_BLOCK=")
+(display (number->string (go:place! 2 1 0)))
+(newline)
+(display "GO_M0_BAD")
+(newline)
