@@ -1,0 +1,243 @@
+;; aura-go M0 — 9x9 board, liberties, capture, simple ko.
+;; Soft FlatAST owns the rules. Cell values: 0 empty, 1 black, 2 white.
+;; Dialect notes live in rules.aura / docs/m0.md.
+
+(define *N* 9)
+(define *CELLS* 81)
+(define *board* (make-vector 81 0))
+(define *undo* (make-vector 81 0))
+(define *seen* (make-vector 81 0))
+(define *stamp* 0)
+(define *to-play* 1)
+(define *ko-x* -1)
+(define *ko-y* -1)
+(define *ko-color* 0)
+(define *cap-x* -1)
+(define *cap-y* -1)
+(define *last-caps* 0)
+(define *caps-black* 0)
+(define *caps-white* 0)
+(define *passes* 0)
+(define *moves* 0)
+
+(define (opp c)
+  (if (= c 1) 2 1))
+
+(define (idx x y)
+  (+ (* y *N*) x))
+
+(define (in? x y)
+  (and (>= x 0) (< x *N*) (>= y 0) (< y *N*)))
+
+(define (at x y)
+  (if (in? x y)
+      (vector-ref *board* (idx x y))
+      -1))
+
+(define (put! x y v)
+  (vector-set! *board* (idx x y) v))
+
+(define (go:at x y) (at x y))
+
+(define (bump-stamp!)
+  (set! *stamp* (+ *stamp* 1))
+  (if (> *stamp* 1000000)
+      (begin
+        (set! *stamp* 1)
+        (let loop ((i 0))
+          (if (< i *CELLS*)
+              (begin
+                (vector-set! *seen* i 0)
+                (loop (+ i 1)))))))
+  *stamp*)
+
+(define (seen? x y)
+  (= (vector-ref *seen* (idx x y)) *stamp*))
+
+(define (mark! x y)
+  (vector-set! *seen* (idx x y) *stamp*))
+
+(define (walk-libs x y color)
+  (if (or (not (in? x y)) (seen? x y))
+      0
+      (let ((c (at x y)))
+        (cond
+          ((= c 0)
+           (mark! x y)
+           1)
+          ((= c color)
+           (mark! x y)
+           (+ (walk-libs (- x 1) y color)
+              (walk-libs (+ x 1) y color)
+              (walk-libs x (- y 1) color)
+              (walk-libs x (+ y 1) color)))
+          (#t 0)))))
+
+(define (group-liberties x y)
+  (let ((color (at x y)))
+    (if (<= color 0)
+        0
+        (begin
+          (bump-stamp!)
+          (walk-libs x y color)))))
+
+(define (go:liberties x y)
+  (group-liberties x y))
+
+(define (walk-size x y color)
+  (if (or (not (in? x y)) (seen? x y) (not (= (at x y) color)))
+      0
+      (begin
+        (mark! x y)
+        (+ 1
+           (walk-size (- x 1) y color)
+           (walk-size (+ x 1) y color)
+           (walk-size x (- y 1) color)
+           (walk-size x (+ y 1) color)))))
+
+(define (group-size x y)
+  (let ((color (at x y)))
+    (if (<= color 0)
+        0
+        (begin
+          (bump-stamp!)
+          (walk-size x y color)))))
+
+(define (go:group-size x y)
+  (group-size x y))
+
+(define (remove-group! x y color)
+  (if (or (not (in? x y)) (not (= (at x y) color)))
+      0
+      (begin
+        (put! x y 0)
+        (+ 1
+           (remove-group! (- x 1) y color)
+           (remove-group! (+ x 1) y color)
+           (remove-group! x (- y 1) color)
+           (remove-group! x (+ y 1) color)))))
+
+(define (maybe-cap x y ocolor)
+  (if (and (in? x y)
+           (= (at x y) ocolor)
+           (= (group-liberties x y) 0))
+      (begin
+        (set! *cap-x* x)
+        (set! *cap-y* y)
+        (remove-group! x y ocolor))
+      0))
+
+(define (capture-around! x y color)
+  (let ((ocolor (opp color)))
+    (+ (maybe-cap (- x 1) y ocolor)
+       (maybe-cap (+ x 1) y ocolor)
+       (maybe-cap x (- y 1) ocolor)
+       (maybe-cap x (+ y 1) ocolor))))
+
+(define (snap!)
+  (let loop ((i 0))
+    (if (< i *CELLS*)
+        (begin
+          (vector-set! *undo* i (vector-ref *board* i))
+          (loop (+ i 1))))))
+
+(define (restore!)
+  (let loop ((i 0))
+    (if (< i *CELLS*)
+        (begin
+          (vector-set! *board* i (vector-ref *undo* i))
+          (loop (+ i 1))))))
+
+(define (clear-ko!)
+  (set! *ko-color* 0)
+  (set! *ko-x* -1)
+  (set! *ko-y* -1)
+  0)
+
+(define (ko-banned? color x y)
+  (and (= color *ko-color*) (= x *ko-x*) (= y *ko-y*)))
+
+(define (note-ko! color x y caps)
+  ;; Simple ko: previous move captured exactly one stone, and the
+  ;; capturer is a single stone with exactly one liberty (that point).
+  ;; The opponent may not play there on the immediate next move.
+  ;; A larger group in atari is snapback, not ko, and is not banned.
+  (if (and (= caps 1)
+           (= (group-size x y) 1)
+           (= (group-liberties x y) 1))
+      (begin
+        (set! *ko-x* *cap-x*)
+        (set! *ko-y* *cap-y*)
+        (set! *ko-color* (opp color))
+        1)
+      (clear-ko!)))
+
+(define (go:reset!)
+  (let loop ((i 0))
+    (if (< i *CELLS*)
+        (begin
+          (vector-set! *board* i 0)
+          (loop (+ i 1)))))
+  (set! *to-play* 1)
+  (set! *last-caps* 0)
+  (set! *caps-black* 0)
+  (set! *caps-white* 0)
+  (set! *passes* 0)
+  (set! *moves* 0)
+  (set! *cap-x* -1)
+  (set! *cap-y* -1)
+  (clear-ko!)
+  0)
+
+(define (go:pass!)
+  (clear-ko!)
+  (set! *passes* (+ *passes* 1))
+  (set! *moves* (+ *moves* 1))
+  (set! *to-play* (opp *to-play*))
+  1)
+
+(define (go:place! color x y)
+  (cond
+    ((not (or (= color 1) (= color 2))) 0)
+    ((not (= color *to-play*)) 0)
+    ((not (in? x y)) 0)
+    ((not (= (at x y) 0)) 0)
+    ((ko-banned? color x y) 0)
+    (#t
+     (begin
+       (snap!)
+       (put! x y color)
+       (let ((caps (capture-around! x y color)))
+         (if (= (group-liberties x y) 0)
+             (begin
+               (restore!)
+               0)
+             (begin
+               (set! *last-caps* caps)
+               (if (= color 1)
+                   (set! *caps-black* (+ *caps-black* caps))
+                   (set! *caps-white* (+ *caps-white* caps)))
+               (note-ko! color x y caps)
+               (set! *passes* 0)
+               (set! *moves* (+ *moves* 1))
+               (set! *to-play* (opp color))
+               1)))))))
+
+(define (cell-ch v)
+  (cond ((= v 1) "B")
+        ((= v 2) "W")
+        (#t ".")))
+
+(define (go:row-string y)
+  (let loop ((x 0) (acc ""))
+    (if (>= x *N*)
+        acc
+        (loop (+ x 1) (string-append acc (cell-ch (at x y)))))))
+
+(define (go:print-board)
+  (let loop ((y 0))
+    (if (< y *N*)
+        (begin
+          (display (go:row-string y))
+          (newline)
+          (loop (+ y 1))))))
