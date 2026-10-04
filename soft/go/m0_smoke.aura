@@ -1,4 +1,4 @@
-;; Deterministic 9x9 M0. Prints capture / ko evidence, then GO_M0_OK.
+;; 9x9 regression, then one 19x19 sequence. Prints GO_M0_OK and GO_19_OK.
 (load "/workspace/aura-go/soft/go/rules.aura")
 
 (define *fail* 0)
@@ -25,9 +25,16 @@
         (set! *fail* (+ *fail* 1))
         0)))
 
+(expect "DEFAULT_N" (go:size) 19)
+(expect "DEFAULT_CELLS" *CELLS* 361)
+(expect "SET9" (go:set-size! 9) 9)
 (display "DIALECT=")
 (display (go:dialect))
 (newline)
+
+;; Point (9,0) is off a 9x9 board and on a 19x19 board.
+(expect "OFF9" (go:place! 1 9 0) 0)
+(expect "TO_PLAY_AFTER_OFF9" *to-play* 1)
 
 ;; --- single-stone capture that is NOT ko (capturer has liberties) ---
 ;; B(1,0), W(0,0), B(0,1) takes the corner white. B(0,1) is not in
@@ -103,10 +110,78 @@
 (expect "PASSES" *passes* 1)
 (expect "EMPTY" (go:empty-count) 78)
 
+;; ========== 19x19: place, capture, ko, suicide on the full board ==========
+;; Same rules. Coordinates touch x=18 / y=18 so a 9-wide stride cannot pass.
+(expect "SET19" (go:set-size! 19) 19)
+(expect "SIZE19" (go:size) 19)
+(expect "CELLS19" *CELLS* 361)
+(display "DIALECT19=")
+(display (go:dialect))
+(newline)
+(expect "EMPTY19_START" (go:empty-count) 361)
+(expect "OFF19" (go:place! 1 18 19) 0)
+(expect "OFF19_X" (go:place! 1 19 0) 0)
+(expect "TO_PLAY_AFTER_OFF19" *to-play* 1)
+(expect "FAR_PLACE" (go:place! 1 18 18) 1)
+(expect "FAR_AT" (go:at 18 18) 1)
+(expect "MID_PLACE" (go:place! 2 9 9) 1)
+(expect "MID_AT" (go:at 9 9) 2)
+
+;; Corner capture on the far edge. Capturer is not in atari, so not ko.
+;; B(17,18) W(18,18) B(18,17) takes the corner white.
+(go:reset!)
+(must (go:place! 1 17 18))
+(must (go:place! 2 18 18))
+(expect "EDGE_CAPTURE" (go:place! 1 18 17) 1)
+(expect "EDGE_CAPS" *last-caps* 1)
+(expect "EDGE_KO_AFTER_OPEN" *ko-color* 0)
+(expect "EDGE_EMPTY" (go:at 18 18) 0)
+
+;; Simple ko on the right edge.
+;; Before Black plays (17,0):
+;;   x=15..18
+;;   B W . W
+;;   . B W .
+;; White at (16,0) has one liberty. B(17,0) captures and is in atari.
+(go:reset!)
+(must (go:place! 1 15 0))
+(must (go:place! 2 16 0))
+(must (go:place! 1 16 1))
+(must (go:place! 2 18 0))
+(must (go:place! 1 0 10))
+(must (go:place! 2 17 1))
+(expect "EDGE_LIB" (go:liberties 16 0) 1)
+(expect "EDGE_KO_PLAY" (go:place! 1 17 0) 1)
+(expect "EDGE_KO_CAPS" *last-caps* 1)
+(expect "EDGE_KO" *ko-color* 2)
+(expect "EDGE_KO_X" *ko-x* 16)
+(expect "EDGE_KO_Y" *ko-y* 0)
+(expect "EDGE_KO_GROUP" (go:group-size 17 0) 1)
+(expect "EDGE_KO_LIBS" (go:liberties 17 0) 1)
+(expect "EDGE_KO_BLOCK" (go:place! 2 16 0) 0)
+(expect "EDGE_STILL_EMPTY" (go:at 16 0) 0)
+(expect "EDGE_KO_CLEAR" (go:place! 2 9 9) 1)
+(expect "EDGE_KO_CLEARED" *ko-color* 0)
+
+;; Suicide in the opposite corner of the 19x19 board.
+;; B(17,18), W(0,0), B(18,17). W(18,18) has no liberty and captures nothing.
+(go:reset!)
+(must (go:place! 1 17 18))
+(must (go:place! 2 0 0))
+(must (go:place! 1 18 17))
+(expect "EDGE_SUICIDE" (go:place! 2 18 18) 0)
+(expect "EDGE_SUICIDE_EMPTY" (go:at 18 18) 0)
+(expect "EDGE_TO_PLAY" *to-play* 2)
+(expect "EMPTY19" (go:empty-count) 358)
+
 (if (= *fail* 0)
     (begin
       (display "GO_M0_OK")
+      (newline)
+      (display "GO_19_OK")
       (newline))
     (begin
       (display "GO_M0_FAIL")
+      (newline)
+      (display "GO_19_FAIL")
       (newline)))
