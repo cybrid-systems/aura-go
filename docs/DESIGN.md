@@ -92,9 +92,9 @@ See `docs/m0.md` for the scripted sequence. Short form:
 
 `rules.aura` only adds `go:dialect` (the string includes the live size, so the default is `japanese-simple-ko-19x19`) and `go:empty-count`. Scoring is not implemented. An empty-point count must not be reported as a result.
 
-## M1 sketch
+## M1 (dual duel + propose)
 
-Board stays 19×19 (9×9 remains available for cheap probes). Still no Elo. Still no territory engine unless a score helper is actually swapped in.
+Board default stays 19×19 (9×9 remains available for cheap probes). Still no Elo. Still no territory engine unless a score helper is actually swapped in.
 
 - `SNAP v1` / `INPUT play <x> <y>` / `INPUT pass` and a C blit that refuses to edit the vector.
 - `go:place-fn` hot-strategy: a body `(lambda (board color) …)` or a cheaper summary (liberty delta, capture size) returning a number. Gate rejects `set!`, `board` writes, `eval`, `load`, `shell`, `http`, `mutate:`. Probe, else `heal!`.
@@ -120,7 +120,10 @@ Liberty and capture walks are a recursive flood fill. A smoke-sized group is not
 | `soft/go/world.aura` | board and M0 rules, default 19×19 |
 | `soft/go/rules.aura` | dialect tag, empty-count stub |
 | `soft/go/m0_smoke.aura` | `GO_M0_OK` and `GO_19_OK` |
-| `scripts/smoke_soft.sh` | Docker Soft runner |
+| `soft/go/strategy.aura` | dual place-fn slots, gate/probe/swap/heal |
+| `soft/go/duel.aura` | same-board select-best; host-sequential |
+| `soft/go/propose.aura` / `burn.aura` / `play.aura` | MiniMax propose + self-evolve burn (9×9) |
+| `scripts/smoke_soft.sh` / `smoke.sh` / `duel.sh` / `burn.sh` | Docker Soft runners |
 | `c/README.md` | why there is no `play.c` yet |
 | `examples/dogfood/` | 9×9 aura-build exercise |
 
