@@ -1,7 +1,7 @@
 M0 has no viewport.
 
-Soft owns the 9×9 board, liberties, captures, simple ko, and pass
-(`soft/go/world.aura`). A later C program may only:
+Soft owns the board (default 19×19, `(go:set-size! n)` for 2..19), liberties,
+captures, simple ko, and pass (`soft/go/world.aura`). A later C program may only:
 
 - spawn the Soft child
 - read a `SNAP` frame on stdout
@@ -10,4 +10,5 @@ Soft owns the 9×9 board, liberties, captures, simple ko, and pass
 
 It must not remove stones, grant a liberty, or clear a ko. There is no
 `play.c` in this milestone because there is no `SNAP` yet. Do not add a
-second rules implementation here to "try the game".
+second rules implementation here to "try the game". The 9×9 smoke is a
+regression, not a second board inside C.

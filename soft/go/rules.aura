@@ -2,14 +2,18 @@
 (load "/workspace/aura-go/soft/go/world.aura")
 
 ;; Tag for logs and EXPLAIN later. Not a second rules implementation.
+;; Size is live: default japanese-simple-ko-19x19, smoke also uses 9x9.
 (define (go:dialect)
-  "japanese-simple-ko-9x9")
+  (string-append "japanese-simple-ko-"
+                 (number->string *N*)
+                 "x"
+                 (number->string *N*)))
 
 ;; Stub only: empty intersections. Not Chinese area, not Japanese territory,
 ;; no komi, no seki. M1 may swap a real score helper.
 (define (go:empty-count)
   (let loop ((i 0) (n 0))
-    (if (>= i 81)
+    (if (>= i *CELLS*)
         n
         (loop (+ i 1)
               (if (= (vector-ref *board* i) 0) (+ n 1) n)))))
