@@ -44,6 +44,36 @@ sudo docker run --rm --entrypoint /usr/local/bin/gosu \
   dev /workspace/aura-grok/build/aura /workspace/aura-go/soft/go/m0_smoke.aura
 ```
 
+
+## Dual duel + MiniMax burn (Soft)
+
+Soft owns the board and two place-fn slots (`go:place-black` /
+`go:place-white`). Each side hot-strategy:swap! / heal! independently.
+Select-best is one-ply over legal moves; the stamp is `host-sequential`
+(never a fake `fiber_live`). Burn prefers **9×9** for speed; the product
+default board stays **19×19**.
+
+```bash
+bash scripts/smoke.sh     # M0 + M1 strategy + M2 duel + M3 propose (+ live MiniMax if key)
+bash scripts/duel.sh      # one 9×9 dual duel, no propose
+bash scripts/burn.sh      # propose→gate→play→score rounds (MiniMax when key present)
+```
+
+Env for play/burn: `GO_BURN_ROUNDS`, `GO_BURN_MOVES`, `GO_BURN_SIZE` (default 9),
+`GO_PROPOSE` (0|1), `GO_PROPOSE_FILE` (fixture path). Host MiniMax:
+`scripts/propose_minimax.py` reads `~/.config/aura-build/minimax.env` — never
+commit keys. Capture-lead is the burn scoreboard, not territory and not Elo.
+
+| Path | Role |
+|------|------|
+| `soft/go/strategy.aura` | dual place-fn slots, gate, probe, swap, heal, EXPLAIN |
+| `soft/go/duel.aura` | same-board select-best duel, host-sequential |
+| `soft/go/propose.aura` | file / host MiniMax propose per color |
+| `soft/go/burn.aura` | self-evolve keep-better loop |
+| `soft/go/play.aura` | burn entry |
+| `scripts/propose_minimax.py` | host HTTP → lambda file |
+| `scripts/duel.sh` / `burn.sh` / `smoke.sh` | runners |
+
 ## Engine
 
 | Path | Role |
