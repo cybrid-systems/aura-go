@@ -1,0 +1,112 @@
+;; Deterministic 9x9 M0. Prints capture / ko evidence, then GO_M0_OK.
+(load "/workspace/aura-go/soft/go/rules.aura")
+
+(define *fail* 0)
+
+(define (expect tag got want)
+  (display tag)
+  (display "=")
+  (display (number->string got))
+  (if (= got want)
+      (display " OK")
+      (begin
+        (display " WANT=")
+        (display (number->string want))
+        (set! *fail* (+ *fail* 1))))
+  (newline)
+  got)
+
+(define (must v)
+  (if (and (number? v) (= v 1))
+      1
+      (begin
+        (display "MUST_FAIL")
+        (newline)
+        (set! *fail* (+ *fail* 1))
+        0)))
+
+(display "DIALECT=")
+(display (go:dialect))
+(newline)
+
+;; --- single-stone capture that is NOT ko (capturer has liberties) ---
+;; B(1,0), W(0,0), B(0,1) takes the corner white. B(0,1) is not in
+;; atari, so *ko-color* stays 0.
+(go:reset!)
+(must (go:place! 1 1 0))
+(must (go:place! 2 0 0))
+(expect "OPEN_CAPTURE" (go:place! 1 0 1) 1)
+(expect "OPEN_CAPS" *last-caps* 1)
+(expect "KO_AFTER_OPEN" *ko-color* 0)
+(expect "OPEN_EMPTY" (go:at 0 0) 0)
+
+;; --- simple ko ---
+;; Shape before Black plays at (2,0):
+;;   B W . W
+;;   . B W .
+;; White at (1,0) has one liberty. Black fills it and is in atari.
+;; White may not recapture at (1,0). A move elsewhere clears the ban.
+;; After Black passes, White recaptures.
+(go:reset!)
+(must (go:place! 1 0 0))
+(must (go:place! 2 1 0))
+(must (go:place! 1 1 1))
+(must (go:place! 2 3 0))
+(must (go:place! 1 4 4))
+(must (go:place! 2 2 1))
+(expect "LIBERTY" (go:liberties 1 0) 1)
+(expect "KO_PLAY" (go:place! 1 2 0) 1)
+(expect "CAPTURE" *last-caps* 1)
+(expect "KO" *ko-color* 2)
+(expect "KO_X" *ko-x* 1)
+(expect "KO_Y" *ko-y* 0)
+(expect "KO_GROUP" (go:group-size 2 0) 1)
+(expect "KO_LIBS" (go:liberties 2 0) 1)
+(display "KO_BOARD")
+(newline)
+(go:print-board)
+(expect "KO_BLOCK" (go:place! 2 1 0) 0)
+(expect "STILL_EMPTY" (go:at 1 0) 0)
+(expect "KO_CLEAR_PLAY" (go:place! 2 5 5) 1)
+(expect "KO_AFTER_CLEAR" *ko-color* 0)
+(expect "PASS" (go:pass!) 1)
+(expect "PASSES" *passes* 1)
+(expect "RECAPTURE" (go:place! 2 1 0) 1)
+(expect "RECAP_CAPS" *last-caps* 1)
+(expect "CAPS_BLACK" *caps-black* 1)
+(expect "CAPS_WHITE" *caps-white* 1)
+
+;; --- two-stone capture is not ko ---
+;; B(2,0) W(0,0) B(0,1) W(1,0), then B(1,1) takes both whites.
+(go:reset!)
+(must (go:place! 1 2 0))
+(must (go:place! 2 0 0))
+(must (go:place! 1 0 1))
+(must (go:place! 2 1 0))
+(expect "MULTI_PLAY" (go:place! 1 1 1) 1)
+(expect "MULTI" *last-caps* 2)
+(expect "KO_AFTER_MULTI" *ko-color* 0)
+(expect "MULTI_EMPTY_A" (go:at 0 0) 0)
+(expect "MULTI_EMPTY_B" (go:at 1 0) 0)
+
+;; --- suicide is illegal; the board is unchanged ---
+;; B(1,0), W elsewhere, B(0,1). White at (0,0) fills no liberty of
+;; either black stone and has none of its own.
+(go:reset!)
+(must (go:place! 1 1 0))
+(must (go:place! 2 8 8))
+(must (go:place! 1 0 1))
+(expect "SUICIDE" (go:place! 2 0 0) 0)
+(expect "SUICIDE_EMPTY" (go:at 0 0) 0)
+(expect "TO_PLAY_STILL_WHITE" *to-play* 2)
+(expect "PASS" (go:pass!) 1)
+(expect "PASSES" *passes* 1)
+(expect "EMPTY" (go:empty-count) 78)
+
+(if (= *fail* 0)
+    (begin
+      (display "GO_M0_OK")
+      (newline))
+    (begin
+      (display "GO_M0_FAIL")
+      (newline)))
