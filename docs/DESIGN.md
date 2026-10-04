@@ -99,7 +99,9 @@ Board default stays 19×19 (9×9 remains available for cheap probes). Still no E
 - `SNAP v1` / `INPUT play <x> <y>` / `INPUT pass` and a C blit that refuses to edit the vector.
 - `go:place-fn` hot-strategy: a body `(lambda (board color) …)` or a cheaper summary (liberty delta, capture size) returning a number. Gate rejects `set!`, `board` writes, `eval`, `load`, `shell`, `http`, `mutate:`. Probe, else `heal!`.
 - One select-best over the legal moves of the side to play. On 19×19 that is a shallow pass (a few plies or a one-ply heuristic), not MCTS and not a rating claim. Reason tags: `capture`, `ko_ban`, `suicide`, `pass`, `fill`.
-- Worldline stamp stays `host-sequential` until four real joins exist. Do not print `fiber_live` early.
+- Worldline stamp is `fiber_live` only when every select in that game spawned four distinct fibers and each join returned a landing list (`backend` and `joins=N/N` are printed). Otherwise `host-sequential`. Do not print `fiber_live` for a partial join.
+- The place-fn sees a packed feature: `>= 10000` capture (local atari), `>= 100` liberty-save scaled by `*lib-weight*`, else place/fill. Group flood-fill stays inside `go:place!`.
+- Mid-match `*lib-weight*` goes 4→7 by `set!`. `mutate:rebind` may log a tag. `eval-current` is skipped: it was probed to reset `*moves*` and clear the board, so it is not a legal mid-match rule rewrite.
 - Optional: swap a score helper (Chinese area or Japanese territory, komi as data). `*caps-*` stay the only capture counters; the helper does not `set!` them.
 - MiniMax propose stays outside Soft (host Python writes a lambda, Soft gates it). No key in the repo, no key on stdout.
 
@@ -121,9 +123,10 @@ Liberty and capture walks are a recursive flood fill. A smoke-sized group is not
 | `soft/go/rules.aura` | dialect tag, empty-count stub |
 | `soft/go/m0_smoke.aura` | `GO_M0_OK` and `GO_19_OK` |
 | `soft/go/strategy.aura` | dual place-fn slots, gate/probe/swap/heal |
-| `soft/go/duel.aura` | same-board select-best; host-sequential |
-| `soft/go/propose.aura` / `burn.aura` / `play.aura` | MiniMax propose + self-evolve burn (9×9) |
-| `scripts/smoke_soft.sh` / `smoke.sh` / `duel.sh` / `burn.sh` | Docker Soft runners |
+| `soft/go/duel.aura` | select-best, liberty feature, four worldlines |
+| `soft/go/propose.aura` / `burn.aura` / `play.aura` | MiniMax propose + per-color keep-better |
+| `soft/go/m19_pk_smoke.aura` | 19×19 PK smoke |
+| `scripts/smoke_soft.sh` / `smoke.sh` / `smoke_19.sh` / `duel.sh` / `burn.sh` / `burn_19.sh` | Docker Soft runners |
 | `c/README.md` | why there is no `play.c` yet |
 | `examples/dogfood/` | 9×9 aura-build exercise |
 
