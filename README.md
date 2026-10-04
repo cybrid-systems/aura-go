@@ -1,9 +1,12 @@
 # aura-go
 
-Aura Go is a live Soft world. The 9×9 board, liberties, captures, and simple
-ko are a Soft FlatAST program. A thin C viewport, later, only blits `SNAP`
-frames and turns keys into `INPUT` lines. M0 has no C binary: the rules
-already run headless.
+Aura Go is a live Soft world. The board (default **19×19**), liberties,
+captures, and simple ko are a Soft FlatAST program. A thin C viewport,
+later, only blits `SNAP` frames and turns keys into `INPUT` lines. M0 has
+no C binary: the rules already run headless.
+
+`go:set-size!` accepts `2`..`19`. The fast smoke and the aura-build dogfood
+exercise stay on **9×9**. That is a regression board, not the product board.
 
 Design: [`docs/DESIGN.md`](docs/DESIGN.md). Milestone: [`docs/m0.md`](docs/m0.md).
 Repo: https://github.com/cybrid-systems/aura-go
@@ -11,10 +14,10 @@ Repo: https://github.com/cybrid-systems/aura-go
 Also an [aura-build](https://github.com/cybrid-systems/aura-build) dogfood
 stub under `examples/dogfood/`.
 
-This is not an Elo project and not a 19×19 engine. The product, same as
-aura-tetris, is the Aura loop: propose a strategy, search worldlines,
-select-best, and leave an auditable `EXPLAIN`. M0 is only the rules the
-loop will own.
+This is not an Elo project. The product, same as aura-tetris, is the Aura
+loop: propose a strategy, search worldlines, select-best, and leave an
+auditable `EXPLAIN`. M0 is only the rules the loop will own. There is no
+territory engine yet (`go:empty-count` is not a score).
 
 ## Soft smoke
 
@@ -24,7 +27,7 @@ runs Soft inside Docker with `--entrypoint /usr/local/bin/gosu`). Needs
 `AURA_SANDBOX=off`.
 
 ```bash
-bash scripts/smoke_soft.sh    # capture + simple ko → GO_M0_OK
+bash scripts/smoke_soft.sh    # 9×9 regression + 19×19 place/capture/ko/suicide → GO_M0_OK GO_19_OK
 ```
 
 Manual Soft run:
@@ -45,15 +48,16 @@ sudo docker run --rm --entrypoint /usr/local/bin/gosu \
 
 | Path | Role |
 |------|------|
-| `soft/go/world.aura` | 9×9 board, place, liberties, capture, suicide, simple ko, pass |
-| `soft/go/rules.aura` | dialect tag, empty-count stub (not a score) |
-| `soft/go/m0_smoke.aura` | scripted sequence → `GO_M0_OK` |
+| `soft/go/world.aura` | board (default 19×19, `go:set-size!`), place, liberties, capture, suicide, simple ko, pass |
+| `soft/go/rules.aura` | dialect tag (`japanese-simple-ko-NxN`), empty-count stub (not a score) |
+| `soft/go/m0_smoke.aura` | 9×9 regression then a 19×19 sequence → `GO_M0_OK` and `GO_19_OK` |
 | `c/README.md` | viewport is not in M0 |
-| `examples/dogfood/` | GOAL / stub / verify for `aura-build llm-dogfood` |
+| `examples/dogfood/` | 9×9 GOAL / stub / verify for `aura-build llm-dogfood` |
 
 Rules dialect for M0: **Japanese-style simplified**, not Chinese superko and
 not a full Japanese ruleset. See `docs/m0.md`.
 
+- Default size is 19. `(go:set-size! n)` for an integer `n` in `2`..`19` clears the board and repacks `N*N` cells. Storage is capped at 361.
 - Black plays first. Colors alternate. `1` black, `2` white, `0` empty.
 - A play captures orthogonal opponent groups that then have zero liberties.
 - Suicide (own group still has zero liberties after captures) is illegal and leaves the board unchanged.
@@ -76,12 +80,14 @@ License: Apache-2.0
 
 # aura-go（中文）
 
-活世界在 Soft：9×9 棋盘、气、提子、简单劫。C 以后只做 `SNAP` 绘制和
-`INPUT`，M0 没有 C 程序。不是 19×19 Elo 项目。产品环路与 aura-tetris 相同：
-propose → 世界线搜索 → select-best → 可审计 `EXPLAIN`。M0 先把规则交给 Soft。
+活世界在 Soft：默认 **19×19** 棋盘、气、提子、简单劫。`(go:set-size! n)`
+可改成 2..19，冒烟和 dogfood 仍用 **9×9** 做回归，那不是产品棋盘。C 以后只做
+`SNAP` 绘制和 `INPUT`，M0 没有 C 程序。不是 Elo 项目，也还没有数目引擎。
+产品环路与 aura-tetris 相同：propose → 世界线搜索 → select-best → 可审计
+`EXPLAIN`。M0 先把规则交给 Soft。
 
 ```bash
-bash scripts/smoke_soft.sh   # 提子 + 简单劫，结尾 GO_M0_OK
+bash scripts/smoke_soft.sh   # 9×9 回归 + 19×19 落子/提子/劫/禁自杀，结尾 GO_M0_OK 与 GO_19_OK
 ```
 
 规则是简化日本规则，不是中国超级劫：禁自杀；只禁「上一手提恰好一子，且提子方是恰好一气的单子」时的立即回提。双气以上的提子不设劫。没有贴目，没有终局数目。详见 `docs/m0.md`。
