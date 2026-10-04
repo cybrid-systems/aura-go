@@ -1,0 +1,177 @@
+; Dual-strategy Go duel on ONE Soft board. Black and white each have a
+; place-fn slot that can hot-strategy:swap! / heal! independently. Soft
+; owns rules; select-best scores a small candidate set via the side's
+; place-fn (neighbor heuristic; real go:place! commits). Stamp is
+; host-sequential — never fake fiber_live. Soft ≠ Restricted.
+; Prefer (go:set-size! 9) for burn speed; product default stays 19.
+
+(load "/workspace/aura-go/soft/go/rules.aura")
+(load "/workspace/aura-go/soft/go/strategy.aura")
+(require "std/string" all:)
+(require "std/process" all:)
+
+(define *duel-mid* 0)
+(define *duel-reason* "boot")
+(define *duel-world* "host-sequential")
+(define *best-x* -1)
+(define *best-y* -1)
+(define *best-score* -999999)
+(define *move-kind* "none")
+(define *burn-rounds* 0)
+(define *black-wins* 0)
+(define *white-wins* 0)
+(define *draws* 0)
+(define *quiet-explain* 0)
+
+(define (go:explain-duel! mid reason)
+  (set! *explain-mid* mid)
+  (set! *explain-reason* reason)
+  (set! *duel-mid* mid)
+  (set! *duel-reason* reason)
+  (if (= *quiet-explain* 0)
+      (try
+        (sh (string-append "echo EXPLAIN mid=" (number->string mid)
+                           " reason=" reason " >&2"))
+        (catch (e) 0)))
+  reason)
+
+(define (go:n-empty x y)
+  (+ (if (= (at (- x 1) y) 0) 1 0)
+     (+ (if (= (at (+ x 1) y) 0) 1 0)
+        (+ (if (= (at x (- y 1)) 0) 1 0)
+           (if (= (at x (+ y 1)) 0) 1 0)))))
+
+(define (go:n-color x y color)
+  (+ (if (= (at (- x 1) y) color) 1 0)
+     (+ (if (= (at (+ x 1) y) color) 1 0)
+        (+ (if (= (at x (- y 1)) color) 1 0)
+           (if (= (at x (+ y 1)) color) 1 0)))))
+
+(define (go:atari-neighbor? x y ocolor)
+  (or (and (= (at (- x 1) y) ocolor) (= (go:n-empty (- x 1) y) 1))
+      (or (and (= (at (+ x 1) y) ocolor) (= (go:n-empty (+ x 1) y) 1))
+          (or (and (= (at x (- y 1)) ocolor) (= (go:n-empty x (- y 1)) 1))
+              (and (= (at x (+ y 1)) ocolor) (= (go:n-empty x (+ y 1)) 1))))))
+
+(define (go:has-neighbor-stone? x y)
+  (or (> (at (- x 1) y) 0)
+      (or (> (at (+ x 1) y) 0)
+          (or (> (at x (- y 1)) 0)
+              (> (at x (+ y 1)) 0)))))
+
+; Candidate when empty AND (has a stone neighbor OR board empty for opening).
+(define (go:center-dist x y)
+  (let ((cx (quotient *N* 2))
+        (cy (quotient *N* 2)))
+    (+ (if (< x cx) (- cx x) (- x cx))
+       (if (< y cy) (- cy y) (- y cy)))))
+
+; Empty + (adjacent to a stone, or near center while the board is young).
+(define (go:cand-open? x y)
+  (and (= (at x y) 0)
+       (or (go:has-neighbor-stone? x y)
+           (and (< *moves* 6) (< (go:center-dist x y) 3)))))
+
+(define (go:cand-feat x y color)
+  (if (not (go:cand-open? x y))
+      #f
+      (let* ((empt (go:n-empty x y))
+             (own (go:n-color x y color))
+             (nopp (go:n-color x y (opp color)))
+             (caps (if (go:atari-neighbor? x y (opp color)) 1 0))
+             (cx (quotient *N* 2))
+             (cy (quotient *N* 2))
+             (dx (if (< x cx) (- cx x) (- x cx)))
+             (dy (if (< y cy) (- cy y) (- y cy)))
+             (center (- 0 (+ dx dy)))
+             (eyeish (and (= empt 0) (> own 0) (= nopp 0) (= caps 0))))
+        (if eyeish
+            #f
+            (+ (* caps 1000) (+ (* empt 10) (+ (* own 3) (+ (* nopp 2) center))))))))
+
+(define (go:consider! color x y)
+  (let ((feat (go:cand-feat x y color)))
+    (if (number? feat)
+        (let ((sc (go:call-place color feat)))
+          (if (and (number? sc) (> sc *best-score*))
+              (begin
+                (set! *best-score* sc)
+                (set! *best-x* x)
+                (set! *best-y* y)
+                (set! *move-kind* (if (>= feat 1000) "capture" "place"))
+                sc)
+              0))
+        0)))
+
+(define (go:select-best! color)
+  (set! *best-x* -1)
+  (set! *best-y* -1)
+  (set! *best-score* -999999)
+  (set! *move-kind* "pass")
+  (set! *quiet-explain* 1)
+  (let loop ((y 0))
+    (if (< y *N*)
+        (begin
+          (let xloop ((x 0))
+            (if (< x *N*)
+                (begin
+                  (go:consider! color x y)
+                  (xloop (+ x 1)))))
+          (loop (+ y 1)))))
+  (set! *quiet-explain* 0)
+  (cond
+    ((< *best-x* 0)
+     (go:explain-duel! color "pass")
+     (list "pass" -1 -1 0))
+    (#t
+     (go:explain-duel! color *move-kind*)
+     (list *move-kind* *best-x* *best-y* *best-score*))))
+
+(define (go:play-best! color)
+  (let ((pick (go:select-best! color)))
+    (if (string=? (car pick) "pass")
+        (begin
+          (go:pass!)
+          pick)
+        (let ((ok (go:place! color *best-x* *best-y*)))
+          (if (= ok 0)
+              (begin
+                (go:explain-duel! color "illegal")
+                (go:pass!)
+                (list "pass" -1 -1 0))
+              pick)))))
+
+(define (go:capture-lead)
+  (- *caps-black* *caps-white*))
+
+(define (go:stones color)
+  (let loop ((i 0) (n 0))
+    (if (>= i *CELLS*)
+        n
+        (loop (+ i 1)
+              (if (= (vector-ref *board* i) color) (+ n 1) n)))))
+
+(define (go:duel-play! max-moves)
+  (let loop ((i 0))
+    (if (or (>= i max-moves) (>= *passes* 2))
+        (list (go:capture-lead) *caps-black* *caps-white* *moves*
+              (go:stones 1) (go:stones 2))
+        (begin
+          (go:play-best! *to-play*)
+          (loop (+ i 1))))))
+
+(define (go:duel-boot! n)
+  (let ((seeded (go:strategy-seed!)))
+    (if (not (and (pair? seeded) (equal? (car seeded) #t)))
+        #f
+        (begin
+          (go:set-size! n)
+          (go:reset!)
+          (set! *duel-world* "host-sequential")
+          #t))))
+
+(define (go:stamp-world!)
+  (display "WORLD line=")
+  (display *duel-world*)
+  (newline)
+  *duel-world*)
