@@ -31,5 +31,5 @@
 (display " propose=")
 (display (number->string *play-prop*))
 (newline)
-(display "NOTE burn uses 9x9 by default; product default board is 19x19\n")
+(display "NOTE default burn size is 9; product board and burn_19 are 19x19\n")
 (go:burn! *play-rounds* *play-size* *play-moves* *play-prop*)

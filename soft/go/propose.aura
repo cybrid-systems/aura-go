@@ -4,26 +4,31 @@
 ; named side slot, and swap! or heal!. Stamps propose_ok /
 ; propose_reject / propose_heal. hot-strategy, not Restricted, not AOT.
 
-(define (go:propose-stamp! ok? tag)
+(define (go:propose-stamp! color ok? tag)
   (set! *strat-mid* 3)
   (set! *strat-reason* tag)
   (go:explain! 3 tag)
+  (display "PROPOSE_SIDE color=")
+  (display (number->string color))
+  (display " tag=")
+  (display tag)
+  (newline)
   (list ok? tag))
 
 (define (go:propose-body! color body)
   (let ((r (go:apply-strategy! color body)))
     (cond
       ((and (pair? r) (equal? (car r) #t))
-       (go:propose-stamp! #t "propose_ok"))
+       (go:propose-stamp! color #t "propose_ok"))
       ((and (pair? r) (pair? (cdr r)) (equal? (car (cdr r)) "probe"))
-       (go:propose-stamp! #f "propose_heal"))
+       (go:propose-stamp! color #f "propose_heal"))
       (#t
-       (go:propose-stamp! #f "propose_reject")))))
+       (go:propose-stamp! color #f "propose_reject")))))
 
 (define (go:propose-file! color path)
   (let ((body (try (read-file path) (catch (e) #f))))
     (if (not (string? body))
-        (go:propose-stamp! #f "propose_reject")
+        (go:propose-stamp! color #f "propose_reject")
         (go:propose-body! color body))))
 
 ; Prefer per-color files from the host burn script. Soft may still call
@@ -42,7 +47,7 @@
       (catch (e) #f))
     (let ((body (try (read-file out) (catch (e) #f))))
       (if (not (string? body))
-          (go:propose-stamp! #f "propose_reject")
+          (go:propose-stamp! color #f "propose_reject")
           (go:propose-body! color body)))))
 
 (define (go:propose! color)

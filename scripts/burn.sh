@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Self-evolve burn: host MiniMax propose → Soft gate → play → score.
-# 9×9 by default for speed. Never prints API keys.
+# 9×9 by default for speed. Full board: scripts/burn_19.sh (SIZE=19).
+# Never prints API keys.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export GO_BURN_ROUNDS="${GO_BURN_ROUNDS:-3}"

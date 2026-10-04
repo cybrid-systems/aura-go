@@ -23,6 +23,9 @@ fi
 # Pass through burn / propose env.
 for k in GO_BURN_ROUNDS GO_BURN_MOVES GO_BURN_SIZE GO_PROPOSE GO_PROPOSE_FILE \
          GO_PROPOSE_FILE_BLACK GO_PROPOSE_FILE_WHITE \
+         GO_BASE_FILE_BLACK GO_BASE_FILE_WHITE \
+         GO_BASE_CAPS_B GO_BASE_CAPS_W GO_BASE_STONES_B GO_BASE_STONES_W \
+         GO_BASE_THIN_B GO_BASE_THIN_W GO_BASE_LEAD \
          MINIMAX_ENV_FILE MINIMAX_BASE_URL MINIMAX_MODEL MINIMAX_API_KEY; do
   if [[ -n "${!k:-}" ]]; then
     EXTRA+=(-e "$k=${!k}")
@@ -31,7 +34,7 @@ done
 if [[ -n "${GO_PROPOSE_FILE:-}" && -f "${GO_PROPOSE_FILE}" ]]; then
   EXTRA+=(-v "${GO_PROPOSE_FILE}:${GO_PROPOSE_FILE}:ro")
 fi
-for pf in GO_PROPOSE_FILE_BLACK GO_PROPOSE_FILE_WHITE; do
+for pf in GO_PROPOSE_FILE_BLACK GO_PROPOSE_FILE_WHITE GO_BASE_FILE_BLACK GO_BASE_FILE_WHITE; do
   if [[ -n "${!pf:-}" && -f "${!pf}" ]]; then
     EXTRA+=(-v "${!pf}:${!pf}:ro")
   fi
