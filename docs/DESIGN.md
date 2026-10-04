@@ -12,10 +12,10 @@ M0 stops before the swap. The rules it needs are already Soft.
 
 ## One sentence
 
-Placing stones is hygiene. The game is: Soft owns the 9×9 position, a
-move policy can be hot-swapped, a proposal is gated before it sticks, and
-worldlines pick a move without restarting the process or teaching C the
-rules. M0 is the position.
+Placing stones is hygiene. The game is: Soft owns the position (default
+19×19), a move policy can be hot-swapped, a proposal is gated before it
+sticks, and worldlines pick a move without restarting the process or
+teaching C the rules. M0 is the position.
 
 ## North star
 
@@ -33,8 +33,9 @@ to a rating chase:
 4. **Heal.** A bad proposal probe restores the last good policy. The board
    is not retconned.
 
-Start at 9×9 (the smoke is a handful of scripted points, not a full game).
-19×19 and Elo are non-goals.
+The product board is the standard full board, **19×19**. `go:set-size!`
+can shrink it (the fast smoke and `examples/dogfood/` use 9×9). Elo, a
+territory score, and superko are still non-goals.
 
 ## Aura loop (target; M0 is the rules box only)
 
@@ -59,7 +60,7 @@ C to get wrong.
 
 | Soft owns | C may do (later) |
 |-----------|------------------|
-| 9×9 matrix, color to play | ANSI blit of the SNAP |
+| N×N matrix, default 19, color to play | ANSI blit of the SNAP |
 | liberties, capture, suicide, simple ko | pointer / keys → `INPUT` |
 | pass count | nothing about eyes or ko |
 | (M1) policy slot and EXPLAIN | nothing about which move won |
@@ -83,51 +84,50 @@ otherwise would be the fake this file exists to forbid.
 
 See `docs/m0.md` for the scripted sequence. Short form:
 
-- Board is 9×9. Orthogonal neighbors only. `(0,0)` is the top-left of the printed rows.
+- Board defaults to 19×19. `(go:set-size! n)` accepts an integer `n` in `2`..`19`, repacks a dense `N*N` vector (max 361 cells), and clears the position. Orthogonal neighbors only. `(0,0)` is the top-left of the printed rows.
 - `go:place!` rejects the wrong color, an occupied point, a ko ban, and a suicide.
 - Captures are removed before the suicide test, so a play that takes stones and lives is legal.
 - Simple ko is the immediate single-stone recapture described in `docs/m0.md`. It is not positional superko.
 - `go:pass!` clears ko, flips the side to play, and increments `*passes*`.
 
-`rules.aura` only adds `go:dialect` and `go:empty-count`. Scoring is not
-implemented. An empty-point count must not be reported as a result.
+`rules.aura` only adds `go:dialect` (the string includes the live size, so the default is `japanese-simple-ko-19x19`) and `go:empty-count`. Scoring is not implemented. An empty-point count must not be reported as a result.
 
 ## M1 sketch
 
-Still 9×9. Still no Elo.
+Board stays 19×19 (9×9 remains available for cheap probes). Still no Elo. Still no territory engine unless a score helper is actually swapped in.
 
 - `SNAP v1` / `INPUT play <x> <y>` / `INPUT pass` and a C blit that refuses to edit the vector.
 - `go:place-fn` hot-strategy: a body `(lambda (board color) …)` or a cheaper summary (liberty delta, capture size) returning a number. Gate rejects `set!`, `board` writes, `eval`, `load`, `shell`, `http`, `mutate:`. Probe, else `heal!`.
-- One select-best over the legal moves of the side to play (a few plies, not MCTS on 19×19). Reason tags: `capture`, `ko_ban`, `suicide`, `pass`, `fill`.
+- One select-best over the legal moves of the side to play. On 19×19 that is a shallow pass (a few plies or a one-ply heuristic), not MCTS and not a rating claim. Reason tags: `capture`, `ko_ban`, `suicide`, `pass`, `fill`.
 - Worldline stamp stays `host-sequential` until four real joins exist. Do not print `fiber_live` early.
 - Optional: swap a score helper (Chinese area or Japanese territory, komi as data). `*caps-*` stay the only capture counters; the helper does not `set!` them.
 - MiniMax propose stays outside Soft (host Python writes a lambda, Soft gates it). No key in the repo, no key on stdout.
 
+Liberty and capture walks are a recursive flood fill. A smoke-sized group is nothing. A snake that fills most of 361 points is still under the evaluator's C-stack cap (700); do not switch this to C "for latency".
+
 ## Non-goals
 
-- Not a second GNU Go. No tsumego book, no rating, no 19×19 by default.
+- Not a second GNU Go. No tsumego book, no rating, no Elo chase on the 19×19 board.
 - Not a plugin moat. No AOT region whose point is to hide the rules in C.
 - Not C-authoritative capture "for latency".
 - Not Chinese superko, bent-four, or seki in M0. Those need an explicit later dialect, not a silent change inside `go:place!`.
+- Not a territory engine in M0. `go:empty-count` counts empty points only.
 
 ## Files
 
 | Path | Role |
 |------|------|
-| `soft/go/world.aura` | board and M0 rules |
+| `soft/go/world.aura` | board and M0 rules, default 19×19 |
 | `soft/go/rules.aura` | dialect tag, empty-count stub |
-| `soft/go/m0_smoke.aura` | `GO_M0_OK` |
+| `soft/go/m0_smoke.aura` | `GO_M0_OK` and `GO_19_OK` |
 | `scripts/smoke_soft.sh` | Docker Soft runner |
 | `c/README.md` | why there is no `play.c` yet |
-| `examples/dogfood/` | optional aura-build exercise |
+| `examples/dogfood/` | 9×9 aura-build exercise |
 
 ## 短中文
 
-产品是活的 Soft 世界，不是又一个 C 围棋。M0 只有规则：9×9、气、提子、
-禁自杀、简单劫、弃权。C 只在以后把 `SNAP` 画出来。
+产品是活的 Soft 世界，不是又一个 C 围棋。M0 的产品棋盘是 **19×19**（`go:set-size!` 可改 2..19）。9×9 只留给冒烟和 dogfood。规则：气、提子、禁自杀、简单劫、弃权。C 只在以后把 `SNAP` 画出来。没有数目，没有 Elo。
 
-简单劫不是中国超级劫：仅当上一手恰好提一子、且提子的那一块是单子且只剩
-一口气时，对方下一手不能下在该点。更大的一块被打吃后回提（扑）不禁。
+简单劫不是中国超级劫：仅当上一手恰好提一子、且提子的那一块是单子且只剩一口气时，对方下一手不能下在该点。更大的一块被打吃后回提（扑）不禁。
 
-M1 再加热策略门、select-best、`EXPLAIN`。`fiber_live` 只有真正 join 成功
-才印。Soft 不是 Restricted，也不是 AOT 插件。不做 19×19 Elo。
+M1 再加热策略门、select-best、`EXPLAIN`。19×19 上的搜索保持浅层，不冒充 MCTS 或等级分。`fiber_live` 只有真正 join 成功才印。Soft 不是 Restricted，也不是 AOT 插件。
