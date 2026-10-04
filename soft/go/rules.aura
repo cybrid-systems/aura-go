@@ -1,0 +1,15 @@
+;; Rules dialect on top of the board. M0 does not score a finished game.
+(load "/workspace/aura-go/soft/go/world.aura")
+
+;; Tag for logs and EXPLAIN later. Not a second rules implementation.
+(define (go:dialect)
+  "japanese-simple-ko-9x9")
+
+;; Stub only: empty intersections. Not Chinese area, not Japanese territory,
+;; no komi, no seki. M1 may swap a real score helper.
+(define (go:empty-count)
+  (let loop ((i 0) (n 0))
+    (if (>= i 81)
+        n
+        (loop (+ i 1)
+              (if (= (vector-ref *board* i) 0) (+ n 1) n)))))
