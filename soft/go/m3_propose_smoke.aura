@@ -1,0 +1,47 @@
+; File-fixture propose. No HTTP. Soft gates, probes, swaps, heals per side.
+(load "/workspace/aura-go/soft/go/duel.aura")
+(load "/workspace/aura-go/soft/go/propose.aura")
+
+(define (ok? r tag)
+  (and (pair? r) (equal? (car r) #t) (equal? (car (cdr r)) tag)))
+
+(define (fail? r tag)
+  (and (pair? r) (equal? (car r) #f) (equal? (car (cdr r)) tag)))
+
+(define (main)
+  (go:set-size! 9)
+  (let ((seeded (go:strategy-seed!)))
+    (if (not (and (pair? seeded) (equal? (car seeded) #t)))
+        (display "GO_M3_PROPOSE_FAIL seed\n")
+        (let ((good (go:propose-file! 1
+                       "/workspace/aura-go/soft/go/fixtures/good_place.lambda")))
+          (if (not (and (ok? good "propose_ok")
+                        (string=? *explain-reason* "propose_ok")
+                        (= (go:place-black 4 1) 7)))
+              (begin
+                (display "GO_M3_PROPOSE_FAIL ok\n")
+                (display *explain-reason*)
+                (newline))
+              (let ((bad (go:propose-file! 1
+                            "/workspace/aura-go/soft/go/fixtures/bad_place.lambda")))
+                (if (not (and (fail? bad "propose_reject")
+                              (= (go:place-black 4 1) 7)))
+                    (begin
+                      (display "GO_M3_PROPOSE_FAIL reject\n")
+                      (display *explain-reason*)
+                      (newline))
+                    (let ((ugly (go:propose-file! 2
+                                   "/workspace/aura-go/soft/go/fixtures/ugly_place.lambda")))
+                      (if (and (fail? ugly "propose_heal")
+                               (string=? *explain-reason* "propose_heal")
+                               (= (go:place-white 4 2) 4)
+                               (= (go:place-black 4 1) 7))
+                          (display "GO_M3_PROPOSE_OK\n")
+                          (begin
+                            (display "GO_M3_PROPOSE_FAIL heal\n")
+                            (display *explain-reason*)
+                            (newline)
+                            (display *strat-reason*)
+                            (newline)))))))))))
+
+(main)

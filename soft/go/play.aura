@@ -1,0 +1,35 @@
+; Play / burn entry. Default burn is 9×9 for speed. Product board is 19.
+; Env: GO_BURN_ROUNDS (default 1), GO_BURN_MOVES (default 10),
+;      GO_BURN_SIZE (default 9), GO_PROPOSE (0|1, default 0),
+;      GO_PROPOSE_FILE / GO_PROPOSE_FILE_BLACK / GO_PROPOSE_FILE_WHITE.
+
+(load "/workspace/aura-go/soft/go/burn.aura")
+
+(define (env-int name fallback)
+  (let ((raw (getenv name)))
+    (if (and (string? raw) (> (string-length raw) 0))
+        (let ((n (string->number raw)))
+          (if (number? n) n fallback))
+        fallback)))
+
+(define *play-rounds* 1)
+(define *play-moves* 10)
+(define *play-size* 9)
+(define *play-prop* 0)
+
+(set! *play-rounds* (env-int "GO_BURN_ROUNDS" 1))
+(set! *play-moves* (env-int "GO_BURN_MOVES" 10))
+(set! *play-size* (env-int "GO_BURN_SIZE" 9))
+(set! *play-prop* (env-int "GO_PROPOSE" 0))
+
+(display "GO_PLAY size=")
+(display (number->string *play-size*))
+(display " rounds=")
+(display (number->string *play-rounds*))
+(display " moves=")
+(display (number->string *play-moves*))
+(display " propose=")
+(display (number->string *play-prop*))
+(newline)
+(display "NOTE burn uses 9x9 by default; product default board is 19x19\n")
+(go:burn! *play-rounds* *play-size* *play-moves* *play-prop*)

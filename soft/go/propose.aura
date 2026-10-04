@@ -1,0 +1,59 @@
+; Live propose. Soft does not speak HTTP. The host helper
+; scripts/propose_minimax.py (or a fixture file) writes a
+; (lambda (board color) ...) string. Soft gates it, probes the
+; named side slot, and swap! or heal!. Stamps propose_ok /
+; propose_reject / propose_heal. hot-strategy, not Restricted, not AOT.
+
+(define (go:propose-stamp! ok? tag)
+  (set! *strat-mid* 3)
+  (set! *strat-reason* tag)
+  (go:explain! 3 tag)
+  (list ok? tag))
+
+(define (go:propose-body! color body)
+  (let ((r (go:apply-strategy! color body)))
+    (cond
+      ((and (pair? r) (equal? (car r) #t))
+       (go:propose-stamp! #t "propose_ok"))
+      ((and (pair? r) (pair? (cdr r)) (equal? (car (cdr r)) "probe"))
+       (go:propose-stamp! #f "propose_heal"))
+      (#t
+       (go:propose-stamp! #f "propose_reject")))))
+
+(define (go:propose-file! color path)
+  (let ((body (try (read-file path) (catch (e) #f))))
+    (if (not (string? body))
+        (go:propose-stamp! #f "propose_reject")
+        (go:propose-body! color body))))
+
+; Prefer per-color files from the host burn script. Soft may still call
+; the host helper when no file env is set (HTTP stays outside Soft).
+(define (go:propose-host! color)
+  (let ((out (if (= color 1)
+                 "/workspace/aura-go/out/go_strategy_black.lambda"
+                 "/workspace/aura-go/out/go_strategy_white.lambda")))
+    (try
+      (sh (string-append
+           "python3 /workspace/aura-go/scripts/propose_minimax.py "
+           out
+           " "
+           (number->string color)
+           " >/workspace/aura-go/out/go_propose.stdout 2>/workspace/aura-go/out/go_propose.stderr"))
+      (catch (e) #f))
+    (let ((body (try (read-file out) (catch (e) #f))))
+      (if (not (string? body))
+          (go:propose-stamp! #f "propose_reject")
+          (go:propose-body! color body)))))
+
+(define (go:propose! color)
+  (let* ((per (if (= color 1)
+                  (getenv "GO_PROPOSE_FILE_BLACK")
+                  (getenv "GO_PROPOSE_FILE_WHITE")))
+         (shared (getenv "GO_PROPOSE_FILE")))
+    (cond
+      ((and (string? per) (> (string-length per) 0))
+       (go:propose-file! color per))
+      ((and (string? shared) (> (string-length shared) 0))
+       (go:propose-file! color shared))
+      (#t
+       (go:propose-host! color)))))

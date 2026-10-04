@@ -1,0 +1,46 @@
+; Seed both place-fn slots, swap a good body onto black, reject a bad one.
+(load "/workspace/aura-go/soft/go/rules.aura")
+(load "/workspace/aura-go/soft/go/strategy.aura")
+
+(define (ok? r tag)
+  (and (pair? r) (equal? (car r) #t) (equal? (car (cdr r)) tag)))
+
+(define (fail? r tag)
+  (and (pair? r) (equal? (car r) #f) (equal? (car (cdr r)) tag)))
+
+(define (main)
+  (go:set-size! 9)
+  (let ((seeded (go:strategy-seed!)))
+    (if (not (and (pair? seeded) (equal? (car seeded) #t)))
+        (display "GO_M1_STRATEGY_FAIL seed\n")
+        (let ((good (go:apply-strategy! 1
+                      "(lambda (board color) (if (number? board) (+ board 5) 1))")))
+          (if (not (and (ok? good "swap")
+                        (= (go:place-black 4 1) 9)
+                        (= (go:place-white 4 2) 4)))
+              (begin
+                (display "GO_M1_STRATEGY_FAIL swap\n")
+                (display *strat-reason*)
+                (newline))
+              (let ((bad (go:apply-strategy! 1
+                            "(lambda (board color) (begin (set! *caps-black* 1) board))")))
+                (if (not (and (fail? bad "gate")
+                              (= (go:place-black 4 1) 9)))
+                    (begin
+                      (display "GO_M1_STRATEGY_FAIL gate\n")
+                      (display *strat-reason*)
+                      (newline))
+                    (let ((ugly (go:apply-strategy! 2
+                                   "(lambda (board color) (cons board color))")))
+                      (if (and (fail? ugly "probe")
+                               (= (go:place-white 4 2) 4)
+                               (= (go:place-black 4 1) 9))
+                          (display "GO_M1_STRATEGY_OK\n")
+                          (begin
+                            (display "GO_M1_STRATEGY_FAIL heal\n")
+                            (display *strat-reason*)
+                            (newline)
+                            (display *explain-reason*)
+                            (newline)))))))))))
+
+(main)
