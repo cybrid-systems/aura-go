@@ -1,1 +1,419 @@
-PLACEHOLDER
+;; Dual-strategy Go duel on ONE Soft board. Black and white each have a
+;; place-fn slot that can hot-strategy:swap! / heal! independently. Soft
+;; owns rules. Select-best is one ply over a liberty-aware feature.
+;; Four worldlines split the candidate rows. fiber_live only when every
+;; select in the game spawned four distinct fibers and each join returned
+;; a landing list. Otherwise host-sequential. Never fake fiber_live.
+;; Soft ≠ Restricted. Product board is 19; 9 is the fast regression size.
+
+(load "/workspace/aura-go/soft/go/rules.aura")
+(load "/workspace/aura-go/soft/go/strategy.aura")
+(require "std/string" all:)
+(require "std/process" all:)
+(require "std/mutate" all:)
+
+(define *duel-mid* 0)
+(define *duel-reason* "boot")
+(define *duel-world* "host-sequential")
+(define *best-x* -1)
+(define *best-y* -1)
+(define *best-score* -999999)
+(define *move-kind* "none")
+(define *burn-rounds* 0)
+(define *black-wins* 0)
+(define *white-wins* 0)
+(define *draws* 0)
+(define *quiet-explain* 0)
+(define *lib-weight* 4)
+(define *rule-mutated* 0)
+(define *rule-how* "none")
+(define (go:lib-weight-tag) 4)
+(define *race-color* 1)
+(define *race-probed* 0)
+(define *race-ok* 0)
+(define *race-backend* 0)
+(define *race-tried* 0)
+(define *race-hit* 0)
+(define *r0-lo* 0)
+(define *r0-hi* 0)
+(define *r1-lo* 0)
+(define *r1-hi* 0)
+(define *r2-lo* 0)
+(define *r2-hi* 0)
+(define *r3-lo* 0)
+(define *r3-hi* 0)
+
+(define (go:explain-duel! mid reason)
+  (set! *explain-mid* mid)
+  (set! *explain-reason* reason)
+  (set! *duel-mid* mid)
+  (set! *duel-reason* reason)
+  (if (= *quiet-explain* 0)
+      (try
+        (sh (string-append "echo EXPLAIN mid=" (number->string mid)
+                           " reason=" reason " >&2"))
+        (catch (e) 0)))
+  reason)
+
+(define (go:n-empty x y)
+  (+ (if (= (at (- x 1) y) 0) 1 0)
+     (+ (if (= (at (+ x 1) y) 0) 1 0)
+        (+ (if (= (at x (- y 1)) 0) 1 0)
+           (if (= (at x (+ y 1)) 0) 1 0)))))
+
+(define (go:n-color x y color)
+  (+ (if (= (at (- x 1) y) color) 1 0)
+     (+ (if (= (at (+ x 1) y) color) 1 0)
+        (+ (if (= (at x (- y 1)) color) 1 0)
+           (if (= (at x (+ y 1)) color) 1 0)))))
+
+(define (go:atari-neighbor? x y ocolor)
+  (or (and (= (at (- x 1) y) ocolor) (= (go:n-empty (- x 1) y) 1))
+      (or (and (= (at (+ x 1) y) ocolor) (= (go:n-empty (+ x 1) y) 1))
+          (or (and (= (at x (- y 1)) ocolor) (= (go:n-empty x (- y 1)) 1))
+              (and (= (at x (+ y 1)) ocolor) (= (go:n-empty x (+ y 1)) 1))))))
+
+(define (go:own-thin? x y color)
+  (or (and (= (at (- x 1) y) color) (= (go:n-empty (- x 1) y) 1))
+      (or (and (= (at (+ x 1) y) color) (= (go:n-empty (+ x 1) y) 1))
+          (or (and (= (at x (- y 1)) color) (= (go:n-empty x (- y 1)) 1))
+              (and (= (at x (+ y 1)) color) (= (go:n-empty x (+ y 1)) 1))))))
+
+(define (go:has-neighbor-stone? x y)
+  (or (> (at (- x 1) y) 0)
+      (or (> (at (+ x 1) y) 0)
+          (or (> (at x (- y 1)) 0)
+              (> (at x (+ y 1)) 0)))))
+
+(define (go:center-dist x y)
+  (let ((cx (quotient *N* 2))
+        (cy (quotient *N* 2)))
+    (+ (if (< x cx) (- cx x) (- x cx))
+       (if (< y cy) (- cy y) (- y cy)))))
+
+;; Empty + (adjacent to a stone, or near center while the board is young).
+(define (go:cand-open? x y)
+  (and (= (at x y) 0)
+       (or (go:has-neighbor-stone? x y)
+           (and (< *moves* 8) (< (go:center-dist x y) 4)))))
+
+;; Packed feature the place-fn sees as `board`:
+;;   >= 10000 capture (local atari), >= 100 liberty-save, else place/fill.
+;; Group flood-fill stays inside go:place!. This walk is neighbor-local.
+(define (go:cand-feat x y color)
+  (if (not (go:cand-open? x y))
+      #f
+      (let ((empt (go:n-empty x y))
+            (own (go:n-color x y color))
+            (nopp (go:n-color x y (opp color)))
+            (caps (if (go:atari-neighbor? x y (opp color)) 1 0))
+            (save (if (go:own-thin? x y color) 1 0))
+            (cx (quotient *N* 2))
+            (cy (quotient *N* 2)))
+        (let ((dx (if (< x cx) (- cx x) (- x cx)))
+              (dy (if (< y cy) (- cy y) (- y cy)))
+              (center (- 0 (+ dx dy)))
+              (eyeish (and (= empt 0) (> own 0) (= nopp 0) (= caps 0))))
+          (if eyeish
+              #f
+              (+ (* caps 10000)
+                 (+ (* save (* *lib-weight* 100))
+                    (+ (* empt 10)
+                       (+ (* own 3)
+                          (+ (* nopp 2) center))))))))))
+
+(define (go:kind-of feat)
+  (cond
+    ((>= feat 10000) 2)
+    ((>= feat 100) 1)
+    (#t 0)))
+
+(define (go:kind-name k)
+  (cond
+    ((= k 2) "capture")
+    ((= k 1) "liberty")
+    (#t "place")))
+
+(define (go:scan-row color y x best)
+  (if (>= x *N*)
+      best
+      (let ((feat (go:cand-feat x y color)))
+        (if (number? feat)
+            (let ((sc (go:call-place color feat)))
+              (if (and (number? sc) (> sc (car best)))
+                  (go:scan-row color y (+ x 1)
+                               (list sc x y (go:kind-of feat)))
+                  (go:scan-row color y (+ x 1) best)))
+            (go:scan-row color y (+ x 1) best)))))
+
+(define (go:scan-band color lo hi y best)
+  (if (>= y hi)
+      best
+      (go:scan-band color lo hi (+ y 1)
+                    (go:scan-row color y 0 best))))
+
+(define (go:race-go-0)
+  (go:scan-band *race-color* *r0-lo* *r0-hi* *r0-lo*
+                (list -999999 -1 -1 0)))
+
+(define (go:race-go-1)
+  (go:scan-band *race-color* *r1-lo* *r1-hi* *r1-lo*
+                (list -999999 -1 -1 0)))
+
+(define (go:race-go-2)
+  (go:scan-band *race-color* *r2-lo* *r2-hi* *r2-lo*
+                (list -999999 -1 -1 0)))
+
+(define (go:race-go-3)
+  (go:scan-band *race-color* *r3-lo* *r3-hi* *r3-lo*
+                (list -999999 -1 -1 0)))
+
+(define (go:band-bounds!)
+  (let ((q (quotient *N* 4)))
+    (if (< q 1)
+        (begin
+          (set! *r0-lo* 0)
+          (set! *r0-hi* *N*)
+          (set! *r1-lo* 0)
+          (set! *r1-hi* 0)
+          (set! *r2-lo* 0)
+          (set! *r2-hi* 0)
+          (set! *r3-lo* 0)
+          (set! *r3-hi* 0))
+        (begin
+          (set! *r0-lo* 0)
+          (set! *r0-hi* q)
+          (set! *r1-lo* q)
+          (set! *r1-hi* (* q 2))
+          (set! *r2-lo* (* q 2))
+          (set! *r2-hi* (* q 3))
+          (set! *r3-lo* (* q 3))
+          (set! *r3-hi* *N*)))))
+
+(define (go:landing? v)
+  (and (pair? v) (number? (car v)) (pair? (cdr v))))
+
+(define (go:race-join fid)
+  (if (and (number? fid) (> fid 0))
+      (try (fiber:join fid) (catch (e) #f))
+      #f))
+
+(define (go:distinct4? a b c d)
+  (and (number? a) (number? b) (number? c) (number? d)
+       (> a 0) (> b 0) (> c 0) (> d 0)
+       (not (= a b)) (not (= a c)) (not (= a d))
+       (not (= b c)) (not (= b d)) (not (= c d))))
+
+;; One-time probe. Dummy joins do not touch the board.
+(define (go:race-probe!)
+  (if (= *race-probed* 1)
+      *race-ok*
+      (begin
+        (set! *race-probed* 1)
+        (set! *race-backend* (try (fiber:spawn-backend) (catch (e) 0)))
+        (let ((f1 (try (fiber:spawn (lambda () (list 1 0))) (catch (e) #f))))
+          (let ((f2 (try (fiber:spawn (lambda () (list 2 0))) (catch (e) #f))))
+            (let ((f3 (try (fiber:spawn (lambda () (list 3 0))) (catch (e) #f))))
+              (let ((f4 (try (fiber:spawn (lambda () (list 4 0))) (catch (e) #f))))
+                (let ((r1 (go:race-join f1))
+                      (r2 (go:race-join f2))
+                      (r3 (go:race-join f3))
+                      (r4 (go:race-join f4)))
+                  (if (and (go:distinct4? f1 f2 f3 f4)
+                           (go:landing? r1) (go:landing? r2)
+                           (go:landing? r3) (go:landing? r4))
+                      (set! *race-ok* 1)
+                      (set! *race-ok* 0)))))))
+        *race-ok*)))
+
+(define (go:take-best picked)
+  (if (and (go:landing? picked) (> (car (cdr picked)) -1))
+      (begin
+        (set! *best-score* (car picked))
+        (set! *best-x* (car (cdr picked)))
+        (set! *best-y* (car (cdr (cdr picked))))
+        (set! *move-kind* (go:kind-name (car (cdr (cdr (cdr picked))))))
+        #t)
+      #f))
+
+(define (go:max-land a b)
+  (if (and (go:landing? b)
+           (or (not (go:landing? a)) (> (car b) (car a))))
+      b
+      a))
+
+(define (go:merge4 a b c d)
+  (go:max-land (go:max-land (go:max-land a b) c) d))
+
+(define (go:host-merge)
+  (go:merge4 (go:race-go-0) (go:race-go-1) (go:race-go-2) (go:race-go-3)))
+
+(define (go:fiber-merge)
+  (let ((f1 (try (fiber:spawn (lambda () (go:race-go-0))) (catch (e) #f))))
+    (let ((f2 (try (fiber:spawn (lambda () (go:race-go-1))) (catch (e) #f))))
+      (let ((f3 (try (fiber:spawn (lambda () (go:race-go-2))) (catch (e) #f))))
+        (let ((f4 (try (fiber:spawn (lambda () (go:race-go-3))) (catch (e) #f))))
+          (let ((r1 (go:race-join f1))
+                (r2 (go:race-join f2))
+                (r3 (go:race-join f3))
+                (r4 (go:race-join f4)))
+            (if (and (go:distinct4? f1 f2 f3 f4)
+                     (go:landing? r1) (go:landing? r2)
+                     (go:landing? r3) (go:landing? r4))
+                (begin
+                  (set! *race-hit* (+ *race-hit* 1))
+                  (go:merge4 r1 r2 r3 r4))
+                #f)))))))
+
+(define (go:select-best! color)
+  (set! *best-x* -1)
+  (set! *best-y* -1)
+  (set! *best-score* -999999)
+  (set! *move-kind* "pass")
+  (set! *quiet-explain* 1)
+  (set! *race-color* color)
+  (go:band-bounds!)
+  (set! *race-tried* (+ *race-tried* 1))
+  (let ((picked (if (= (go:race-probe!) 1)
+                    (let ((live (go:fiber-merge)))
+                      (if (go:landing? live)
+                          live
+                          (go:host-merge)))
+                    (go:host-merge))))
+    (go:take-best picked))
+  (set! *quiet-explain* 0)
+  (cond
+    ((< *best-x* 0)
+     (go:explain-duel! color "pass")
+     (list "pass" -1 -1 0))
+    (#t
+     (go:explain-duel! color *move-kind*)
+     (list *move-kind* *best-x* *best-y* *best-score*))))
+
+(define (go:play-best! color)
+  (let ((pick (go:select-best! color)))
+    (if (string=? (car pick) "pass")
+        (begin
+          (go:pass!)
+          pick)
+        (let ((ok (go:place! color *best-x* *best-y*)))
+          (if (= ok 0)
+              (begin
+                (go:explain-duel! color "illegal")
+                (go:pass!)
+                (list "pass" -1 -1 0))
+              (begin
+                ;; Feature band can say capture on a local atari that
+                ;; does not take stones. The counter is the authority.
+                (if (> *last-caps* 0)
+                    (set! *move-kind* "capture")
+                    (if (string=? *move-kind* "capture")
+                        (set! *move-kind* "place")))
+                (go:explain-duel! color *move-kind*)
+                (display "MOVE x=")
+                (display (number->string *best-x*))
+                (display " y=")
+                (display (number->string *best-y*))
+                (display " color=")
+                (display (number->string color))
+                (display " reason=")
+                (display *move-kind*)
+                (newline)
+                pick))))))
+
+;; Scoring-rule tweak mid-match. mutate:rebind + eval-current was probed:
+;; eval-current clears *moves* and the board, so it is not called here.
+;; The live liberty weight is a set!. rebind of go:lib-weight-tag is only
+;; an audited attempt and does not rewrite capture / ko.
+(define (go:rule-mutate!)
+  (if (= *rule-mutated* 1)
+      0
+      (begin
+        (set! *lib-weight* 7)
+        (set! *rule-mutated* 1)
+        (set! *rule-how* "set")
+        (let ((rb (try (mutate:rebind "go:lib-weight-tag"
+                                      "(define (go:lib-weight-tag) 7)"
+                                      "liberty-weight")
+                       (catch (e) #f))))
+          (if (equal? rb #t)
+              (set! *rule-how* "rebind+set")))
+        (display "RULE mutate=")
+        (display *rule-how*)
+        (display " weight=")
+        (display (number->string *lib-weight*))
+        (display " eval=skipped")
+        (newline)
+        (go:explain-duel! *to-play* "rule_mutate")
+        1)))
+
+(define (go:capture-lead)
+  (- *caps-black* *caps-white*))
+
+(define (go:stones color)
+  (let loop ((i 0) (n 0))
+    (if (>= i *CELLS*)
+        n
+        (loop (+ i 1)
+              (if (= (vector-ref *board* i) color) (+ n 1) n)))))
+
+(define (go:thin-count color)
+  (let loop ((i 0) (n 0))
+    (if (>= i *CELLS*)
+        n
+        (let ((y (quotient i *N*))
+              (x (- i (* (quotient i *N*) *N*))))
+          (loop (+ i 1)
+                (if (and (= (vector-ref *board* i) color)
+                         (<= (go:n-empty x y) 1))
+                    (+ n 1)
+                    n))))))
+
+(define (go:finish-world!)
+  (if (and (> *race-tried* 0)
+           (= *race-hit* *race-tried*)
+           (> *race-backend* 0))
+      (set! *duel-world* "fiber_live")
+      (set! *duel-world* "host-sequential"))
+  *duel-world*)
+
+(define (go:duel-play! max-moves)
+  (set! *race-tried* 0)
+  (set! *race-hit* 0)
+  (let loop ((i 0))
+    (if (or (>= i max-moves) (>= *passes* 2))
+        (begin
+          (go:finish-world!)
+          (list (go:capture-lead) *caps-black* *caps-white* *moves*
+                (go:stones 1) (go:stones 2)))
+        (begin
+          (if (= i 4) (go:rule-mutate!))
+          (go:play-best! *to-play*)
+          (loop (+ i 1))))))
+
+(define (go:duel-boot! n)
+  (let ((seeded (go:strategy-seed!)))
+    (if (not (and (pair? seeded) (equal? (car seeded) #t)))
+        #f
+        (begin
+          (go:set-size! n)
+          (go:reset!)
+          (set! *lib-weight* 4)
+          (set! *rule-mutated* 0)
+          (set! *rule-how* "none")
+          (set! *duel-world* "host-sequential")
+          (set! *race-tried* 0)
+          (set! *race-hit* 0)
+          #t))))
+
+(define (go:stamp-world!)
+  (display "WORLD line=")
+  (display *duel-world*)
+  (display " backend=")
+  (display (number->string *race-backend*))
+  (display " joins=")
+  (display (number->string *race-hit*))
+  (display "/")
+  (display (number->string *race-tried*))
+  (newline)
+  *duel-world*)
