@@ -1,0 +1,196 @@
+; Dual place-fn slots for black and white. Soft owns the board; these bodies
+; only score a numeric candidate feature. Seed once with set-code (sandbox
+; off), afterwards only hot-strategy:swap! / heal! per side. Soft ≠ Restricted,
+; not AOT. hot-strategy tracks one active name: Soft keeps *black-live* /
+; *white-live* and re-register!s before each side's swap/heal.
+
+(require "std/hot-strategy" all:)
+(require "std/string" all:)
+(require "std/mutate" all:)
+(require "std/process" all:)
+
+(define *black-body*
+  "(lambda (board color) (if (number? board) board 0))")
+(define *white-body*
+  "(lambda (board color) (if (number? board) board 0))")
+; Aggressive: prefer larger feature (captures / libs encoded upstream).
+(define *agg-body*
+  "(lambda (board color) (if (number? board) (+ board color) 0))")
+; Defensive: prefer quieter features.
+(define *def-body*
+  "(lambda (board color) (if (number? board) (- 0 board) 0))")
+
+(define *black-live* *black-body*)
+(define *white-live* *white-body*)
+(define *strat-mid* 0)
+(define *strat-reason* "boot")
+(define *explain-mid* 0)
+(define *explain-reason* "boot")
+(define *strategy-seeded* 0)
+(define *active-side* 1)
+
+(define *seed-src*
+  (string-append
+   "(define (go:place-black board color) (if (number? board) board 0))\n"
+   "(define (go:place-white board color) (if (number? board) board 0))\n"))
+
+(define (go:explain! mid reason)
+  (set! *explain-mid* mid)
+  (set! *explain-reason* reason)
+  (try
+    (sh (string-append "echo EXPLAIN mid=" (number->string mid)
+                       " reason=" reason " >&2"))
+    (catch (e) 0))
+  reason)
+
+(define (go:side-name color)
+  (if (= color 1) "go:place-black" "go:place-white"))
+
+(define (go:side-live color)
+  (if (= color 1) *black-live* *white-live*))
+
+(define (go:set-side-live! color body)
+  (if (= color 1)
+      (set! *black-live* body)
+      (set! *white-live* body))
+  body)
+
+(define (go:probe-side! color)
+  (let ((v (if (= color 1)
+               (try (go:place-black 4 1) (catch (e) #f))
+               (try (go:place-white 4 2) (catch (e) #f)))))
+    (number? v)))
+
+(define (go:strategy-seed!)
+  (if (= *strategy-seeded* 1)
+      (if (and (go:probe-side! 1) (go:probe-side! 2))
+          (begin
+            (go:explain! 0 "seed")
+            (list #t "seed"))
+          (begin
+            (set! *strat-reason* "probe")
+            (go:explain! 1 "probe")
+            (list #f "probe")))
+      (let ((sc (try (set-code *seed-src*) (catch (e) e))))
+        (if (not (equal? sc #t))
+            (begin
+              (set! *strat-mid* 1)
+              (set! *strat-reason* "seed")
+              (list #f "seed"))
+            (begin
+              (eval-current)
+              (hot-strategy:register! "go:place-black" *black-body*)
+              (hot-strategy:register! "go:place-white" *white-body*)
+              (set! *black-live* *black-body*)
+              (set! *white-live* *white-body*)
+              (set! *strategy-seeded* 1)
+              (set! *strat-mid* 0)
+              (set! *strat-reason* "seed")
+              (if (and (go:probe-side! 1) (go:probe-side! 2))
+                  (begin
+                    (go:explain! 0 "seed")
+                    (list #t "seed"))
+                  (begin
+                    (set! *strat-reason* "probe")
+                    (go:explain! 1 "probe")
+                    (list #f "probe"))))))))
+
+; Reject bodies that write the board, escape, or touch capture counters.
+(define (go:bad-body? s)
+  (or (string-contains? s "set!")
+      (string-contains? s "vector-set!")
+      (string-contains? s "go:place!")
+      (string-contains? s "go:pass!")
+      (string-contains? s "go:reset!")
+      (string-contains? s "caps")
+      (string-contains? s "display")
+      (string-contains? s "mutate:")
+      (string-contains? s "eval")
+      (string-contains? s "load")
+      (string-contains? s "shell")
+      (string-contains? s "http")
+      (string-contains? s "mod")
+      (string-contains? s "floor")
+      (string-contains? s "quotient")
+      (string-contains? s "/")))
+
+(define (go:body-ok? body)
+  (and (string? body)
+       (> (string-length body) 20)
+       (< (string-length body) 2000)
+       (string-prefix? body "(lambda")
+       (string-contains? body "board")
+       (string-contains? body "color")
+       (not (go:bad-body? body))))
+
+(define (go:boundary-ok?)
+  (and (mutate:boundary-safe?)
+       (mutate:quota-ok?)))
+
+; Rebind one side without set-code (avoids wiping the sibling slot).
+(define (go:refresh-side! color body)
+  (let ((name (go:side-name color)))
+    (hot-strategy:register! name body)
+    (hot-strategy:swap! name body "refresh-live")))
+
+(define (go:apply-strategy! color body)
+  (let ((clean (if (string? body) (string-trim body) ""))
+        (name (go:side-name color))
+        (keep (go:side-live color))
+        (other (if (= color 1) 2 1))
+        (other-keep (go:side-live (if (= color 1) 2 1))))
+    (cond
+      ((not (go:body-ok? clean))
+       (set! *strat-mid* 1)
+       (set! *strat-reason* "gate")
+       (go:explain! 1 "gate_reject")
+       (list #f "gate"))
+      ((not (go:boundary-ok?))
+       (set! *strat-mid* 1)
+       (set! *strat-reason* "boundary")
+       (go:explain! 1 "boundary")
+       (list #f "boundary"))
+      (#t
+       (set! *active-side* color)
+       (if (= *strategy-seeded* 0)
+           (go:strategy-seed!))
+       ; If a prior heal dropped a define, re-seed once, then restore BOTH
+       ; Soft-tracked lives onto the live cells.
+       (if (not (and (go:probe-side! 1) (go:probe-side! 2)))
+           (begin
+             (set! *strategy-seeded* 0)
+             (go:strategy-seed!)
+             (go:set-side-live! color keep)
+             (go:set-side-live! other other-keep)
+             (go:refresh-side! 1 *black-live*)
+             (go:refresh-side! 2 *white-live*)))
+       (go:refresh-side! color keep)
+       (let ((sw (hot-strategy:swap! name clean "go-place")))
+         (if (not (and (pair? sw) (equal? (car sw) #t)))
+             (begin
+               (set! *strat-mid* 1)
+               (set! *strat-reason* "swap")
+               (go:explain! 1 "swap")
+               (list #f "swap"))
+             (if (go:probe-side! color)
+                 (begin
+                   (go:set-side-live! color clean)
+                   (set! *strat-mid* 1)
+                   (set! *strat-reason* "swap")
+                   (go:explain! 1 "swap")
+                   (list #t "swap"))
+                 (begin
+                   ; Dual slots: do not ast:restore (heal!) — that snapshot
+                   ; can rewind the sibling place-fn. Rebind keep instead.
+                   (try (hot-strategy:swap! name keep "heal-fallback")
+                        (catch (e) #f))
+                   (try (go:refresh-side! other other-keep) (catch (e) #f))
+                   (set! *strat-mid* 1)
+                   (set! *strat-reason* "heal")
+                   (go:explain! 1 "heal")
+                   (list #f "probe")))))))))
+
+(define (go:call-place color board)
+  (if (= color 1)
+      (try (go:place-black board color) (catch (e) #f))
+      (try (go:place-white board color) (catch (e) #f))))
