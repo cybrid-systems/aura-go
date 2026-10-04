@@ -1,0 +1,1 @@
+(lambda (board color) (if (number? board) (+ board 3) 1)
